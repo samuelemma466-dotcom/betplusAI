@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { SPORTS, MOCK_MATCHES } from './constants';
+import { SPORTS } from './constants';
 import { BetSelection, SportCategory, Match, Odd, PlacedBet, AppView, AppSettings, Transaction, UserProfile } from './types';
 import MatchCard from './components/MatchCard';
 import Betslip from './components/Betslip';
@@ -15,6 +15,14 @@ import { Confetti, CountUp } from './components/UiEffects';
 import { DepositView, WithdrawView, ProfileView, TransactionsView, HelpView, ResponsibleGamingView, SettingsView, VerificationView, BonusView, getCurrencySymbol } from './components/AccountViews';
 import { Menu, Search, User, Bell, Home, Calendar, Trophy, PieChart, MenuSquare, Dices, X, CheckCircle2, Ticket, Wallet, AlertTriangle, LogOut } from 'lucide-react';
 
+// Firebase Imports
+import { auth, db, seedDatabase } from './services/firebase';
+import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
+import { ref, onValue, set, push, get, update } from 'firebase/database';
+
+// API Imports
+import { fetchFootballMatches } from './services/footballApi';
+
 // --- TOAST COMPONENT ---
 interface Toast {
   id: string;
@@ -22,8 +30,16 @@ interface Toast {
   subtitle?: string;
 }
 
+interface WalletState {
+  main: number;
+  bonus: number;
+}
+
 const App: React.FC = () => {
+  const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authLoading, setAuthLoading] = useState(true);
+
   const [activeCategory, setActiveCategory] = useState<SportCategory>('Soccer');
   const [selections, setSelections] = useState<BetSelection[]>([]);
   const [isMobileBetslipOpen, setIsMobileBetslipOpen] = useState(false);
@@ -31,18 +47,21 @@ const App: React.FC = () => {
   const [filter, setFilter] = useState<'all' | 'live' | 'upcoming'>('all');
   const [currentView, setCurrentView] = useState<AppView>('sports');
   const [myBets, setMyBets] = useState<PlacedBet[]>([]);
-  const [balance, setBalance] = useState(2450.50);
+  
+  // Wallet State
+  const [wallet, setWallet] = useState<WalletState>({ main: 0, bonus: 0 });
+  
   const [showSessionWarning, setShowSessionWarning] = useState(false);
   
   // User Profile State
   const [userProfile, setUserProfile] = useState<UserProfile>({
-    name: 'John Doe',
-    email: 'john.doe@example.com',
-    phone: '+1 (555) 0123-4567',
-    avatar: 'JD',
-    id: '88239102',
-    level: 2,
-    joinDate: 'August 2023'
+    name: 'Player',
+    email: '',
+    phone: '',
+    avatar: 'PL',
+    id: '',
+    level: 1,
+    joinDate: new Date().getFullYear().toString()
   });
   
   // Idle Timer State
@@ -52,10 +71,7 @@ const App: React.FC = () => {
   const IDLE_LOGOUT_TIME = 300000; // 5 minutes
 
   // Transaction History State
-  const [transactions, setTransactions] = useState<Transaction[]>([
-     { id: 'tx-102', type: 'Bet Win', method: 'Ticket #88291', amount: 150.50, date: 'May 09, 21:00', status: 'Success' },
-     { id: 'tx-101', type: 'Deposit', method: 'Visa **** 4242', amount: 500.00, date: 'May 05, 11:20', status: 'Success' }
-  ]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
   
   const [showConfetti, setShowConfetti] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -77,13 +93,123 @@ const App: React.FC = () => {
   });
 
   const currencySymbol = getCurrencySymbol(settings.currency);
+  const [firebaseMatches, setFirebaseMatches] = useState<Match[]>([]);
+  const [apiMatches, setApiMatches] = useState<Match[]>([]);
+  
+  // Combined matches
+  const matches = [...apiMatches, ...firebaseMatches];
 
-  // Check Auth Token on Mount
+  // 1. AUTH & DATA SUBSCRIPTION
   useEffect(() => {
-    const token = localStorage.getItem('authToken');
-    if (token) {
-      setIsAuthenticated(true);
-    }
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        setCurrentUser(user);
+        setIsAuthenticated(true);
+        
+        // Setup Profile
+        setUserProfile(prev => ({
+          ...prev,
+          name: user.displayName || user.email?.split('@')[0] || 'Player',
+          email: user.email || '',
+          id: user.uid,
+          avatar: (user.email?.[0] || 'P').toUpperCase()
+        }));
+
+        // Initialize user WALLET in DB if not exists
+        const walletRef = ref(db, `users/${user.uid}/wallet`);
+        get(walletRef).then(snap => {
+           if (!snap.exists()) {
+             // Initialize with zero balances as requested
+             set(walletRef, { main: 0, bonus: 0 }); 
+           }
+        });
+
+        // 1. Subscribe to User Wallet (Main & Bonus)
+        onValue(walletRef, (snapshot) => {
+           const val = snapshot.val();
+           if (val) {
+             setWallet({ 
+               main: Number(val.main || 0), 
+               bonus: Number(val.bonus || 0) 
+             });
+           }
+        });
+
+        // 2. Subscribe to User Bets
+        const betsRef = ref(db, `bets/${user.uid}`);
+        onValue(betsRef, (snapshot) => {
+           const data = snapshot.val();
+           if (data) {
+              const betsArray = Object.keys(data).map(key => ({ ...data[key], id: key }));
+              // Sort by date descending
+              setMyBets(betsArray.sort((a, b) => new Date(b.placedAt).getTime() - new Date(a.placedAt).getTime()));
+           } else {
+              setMyBets([]);
+           }
+        });
+
+        // 3. Subscribe to Transactions
+        const txRef = ref(db, `transactions/${user.uid}`);
+        onValue(txRef, (snapshot) => {
+           const data = snapshot.val();
+           if (data) {
+              const txArray = Object.keys(data).map(key => ({ ...data[key], id: key }));
+              setTransactions(txArray.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+           } else {
+              setTransactions([]);
+           }
+        });
+
+        // 4. Subscribe to Matches (and Seed if needed)
+        seedDatabase(); // Check and seed
+        const matchesRef = ref(db, 'matches');
+        onValue(matchesRef, (snapshot) => {
+           const data = snapshot.val();
+           if (data) {
+              // Convert object to array
+              const matchesArr = Object.values(data) as Match[];
+              // Ensure Date objects are proper Dates (Firebase stores as string/timestamp)
+              // IMPORTANT: Firebase omits empty arrays, so we must default odds.secondary to [] if undefined
+              const processed = matchesArr.map(m => ({
+                 ...m,
+                 startTime: new Date(m.startTime),
+                 odds: {
+                    main: m.odds?.main || [],
+                    secondary: m.odds?.secondary || []
+                 },
+                 stats: m.stats || []
+              }));
+              setFirebaseMatches(processed);
+           }
+        });
+
+        // 5. Fetch Full Football Data (API)
+        // Fetches both LIVE and UPCOMING matches for the day to replace mock data
+        const loadApiData = async () => {
+            const data = await fetchFootballMatches();
+            setApiMatches(data);
+            if (data.length > 0) {
+               addToast("Football Data Sync", `${data.length} matches loaded from API-Football`);
+            }
+        };
+        loadApiData();
+        // Refresh every 5 minutes to avoid rate limiting
+        const apiInterval = setInterval(loadApiData, 300000); 
+        return () => clearInterval(apiInterval);
+
+      } else {
+        setCurrentUser(null);
+        setIsAuthenticated(false);
+        setFirebaseMatches([]);
+        setApiMatches([]);
+        setMyBets([]);
+        setWallet({ main: 0, bonus: 0 });
+        setTransactions([]);
+      }
+      setAuthLoading(false);
+    });
+
+    return () => unsubscribe();
   }, []);
 
   // Apply Theme
@@ -96,19 +222,18 @@ const App: React.FC = () => {
   }, [settings.theme]);
 
   const handleLogout = () => {
-    if (warnTimerRef.current) clearTimeout(warnTimerRef.current);
-    if (logoutTimerRef.current) clearTimeout(logoutTimerRef.current);
-    localStorage.removeItem('authToken');
-    setIsMenuOpen(false);
-    setIsAuthenticated(false);
-    setShowSessionWarning(false);
-    addToast("Logged out successfully");
-    setCurrentView('sports');
+    signOut(auth).then(() => {
+      if (warnTimerRef.current) clearTimeout(warnTimerRef.current);
+      if (logoutTimerRef.current) clearTimeout(logoutTimerRef.current);
+      setIsMenuOpen(false);
+      setShowSessionWarning(false);
+      addToast("Logged out successfully");
+      setCurrentView('sports');
+    });
   };
 
-  const handleAuthSuccess = () => {
-    localStorage.setItem('authToken', 'secure-token-123');
-    setIsAuthenticated(true);
+  const handleAuthSuccess = (user: any) => {
+    // Auth state listener handles the rest
     addToast("System Online", "Identity Verified");
   };
 
@@ -143,10 +268,8 @@ const App: React.FC = () => {
       if (logoutTimerRef.current) clearTimeout(logoutTimerRef.current);
       events.forEach(e => window.removeEventListener(e, resetTimer));
     };
-  }, [isAuthenticated, showSessionWarning]); // Re-bind if warning state changes (to allow dismissal via activity)
+  }, [isAuthenticated, showSessionWarning]);
   
-  const [matches, setMatches] = useState<Match[]>(MOCK_MATCHES);
-
   // Helper: Show Toast
   const addToast = (message: string, subtitle?: string) => {
     const id = Date.now().toString();
@@ -156,49 +279,85 @@ const App: React.FC = () => {
     }, 4000);
   };
 
-  const triggerWin = (amount: number) => {
+  const triggerWin = async (amount: number) => {
     setShowConfetti(true);
-    setBalance(prev => prev + amount);
+    if (currentUser) {
+       const balanceRef = ref(db, `users/${currentUser.uid}/wallet/main`);
+       await set(balanceRef, wallet.main + amount);
+       
+       // Record Win Transaction
+       const txRef = push(ref(db, `transactions/${currentUser.uid}`));
+       await set(txRef, {
+          id: txRef.key,
+          type: 'Bet Win',
+          method: 'Casino',
+          amount: amount,
+          date: new Date().toISOString(), // Use ISO for sorting
+          status: 'Success'
+       });
+    }
     setTimeout(() => setShowConfetti(false), 3000);
   };
 
-  const handleDeposit = (amount: number, method: string) => {
-      setBalance(b => b + amount);
+  const handleDeposit = async (amount: number, method: string) => {
+      if (!currentUser) return;
+      
+      const newBalance = wallet.main + amount;
+      await update(ref(db, `users/${currentUser.uid}/wallet`), { main: newBalance });
+
+      const txRef = push(ref(db, `transactions/${currentUser.uid}`));
       const newTx: Transaction = {
-          id: `dep-${Date.now()}`,
+          id: txRef.key!,
           type: 'Deposit',
           method: method,
           amount: amount,
-          date: new Date().toLocaleString(),
+          date: new Date().toISOString(),
           status: 'Success'
       };
-      setTransactions(prev => [newTx, ...prev]);
+      await set(txRef, newTx);
+      
       addToast('Deposit Successful', `${currencySymbol}${amount.toFixed(2)} added to balance.`);
   };
 
-  const handleWithdraw = (amount: number, method: string) => {
-      setBalance(b => b - amount);
+  const handleWithdraw = async (amount: number, method: string) => {
+      if (!currentUser) return;
+      if (amount > wallet.main) {
+        addToast("Error", "Insufficient funds.");
+        return;
+      }
+      
+      const newBalance = wallet.main - amount;
+      await update(ref(db, `users/${currentUser.uid}/wallet`), { main: newBalance });
+
+      const txRef = push(ref(db, `transactions/${currentUser.uid}`));
       const newTx: Transaction = {
-          id: `wdr-${Date.now()}`,
+          id: txRef.key!,
           type: 'Withdrawal',
           method: method,
           amount: amount,
-          date: new Date().toLocaleString(),
+          date: new Date().toISOString(),
           status: 'Pending'
       };
-      setTransactions(prev => [newTx, ...prev]);
+      await set(txRef, newTx);
+
       addToast('Withdrawal Requested', `${currencySymbol}${amount.toFixed(2)} is being processed.`);
   };
 
+  // --- CLIENT-SIDE SIMULATION FOR VISUALS (Syncs to Local State Only for smoothness) ---
+  // In a real app, this would be updated via Cloud Functions writing to DB
   useEffect(() => {
     const interval = setInterval(() => {
-      setMatches(currentMatches => {
+      setFirebaseMatches(currentMatches => {
         return currentMatches.map(match => {
           if (!match.isLive) return match;
 
+          // Simple random simulation logic for display purposes
+          // NOTE: We are NOT writing this back to DB to avoid rapid write triggers in this demo context
+          // but we modify local state for the live effect.
+          
           let newScores = match.scores ? { ...match.scores } : { home: 0, away: 0 };
           const scoreChance = Math.random();
-          if (scoreChance > 0.98) {
+          if (scoreChance > 0.99) { // Rare update
              if (Math.random() > 0.5) newScores.home += 1;
              else newScores.away += 1;
              
@@ -213,8 +372,11 @@ const App: React.FC = () => {
           }
 
           const updateOdds = (odds: Odd[]) => {
+             // Safety check for undefined odds arrays
+             if (!odds || !Array.isArray(odds)) return [];
+             
              return odds.map(odd => {
-                if (Math.random() > 0.7) {
+                if (Math.random() > 0.8) {
                   const change = (Math.random() - 0.5) * 0.15;
                   let newVal = odd.value + change;
                   if (newVal < 1.01) newVal = 1.01;
@@ -235,16 +397,6 @@ const App: React.FC = () => {
           };
         });
       });
-      
-      setMyBets(prevBets => prevBets.map(bet => {
-        if (bet.status !== 'open') return bet;
-        const fluctuation = 1 + (Math.random() - 0.5) * 0.04;
-        let newOffer = (bet.cashOutOffer || bet.stake) * fluctuation;
-        newOffer = Math.max(bet.stake * 0.1, Math.min(newOffer, bet.potentialReturn * 1.5));
-        
-        return { ...bet, cashOutOffer: newOffer };
-      }));
-
     }, 3000); 
 
     return () => clearInterval(interval);
@@ -265,32 +417,70 @@ const App: React.FC = () => {
     setSelections(prev => prev.filter(s => s.selectionId !== id));
   };
 
-  const handlePlaceBet = (bet: PlacedBet) => {
-    setMyBets(prev => [bet, ...prev]);
-    setBalance(prev => prev - bet.stake);
-    addToast('Bet Placed Successfully', `Ticket #${bet.id.slice(-6)} • Potential Win: ${currencySymbol}${bet.potentialReturn.toFixed(2)}`);
+  const handlePlaceBet = async (bet: PlacedBet) => {
+    if (!currentUser) return;
+    
+    // Check balance (Main Wallet)
+    if (wallet.main < bet.stake) {
+       addToast("Error", "Insufficient balance to place bet.");
+       return;
+    }
+
+    try {
+       // Deduct Main Balance
+       await update(ref(db, `users/${currentUser.uid}/wallet`), { main: wallet.main - bet.stake });
+       
+       // Save Bet
+       const betRef = push(ref(db, `bets/${currentUser.uid}`));
+       await set(betRef, bet);
+
+       // Record Transaction
+       const txRef = push(ref(db, `transactions/${currentUser.uid}`));
+       await set(txRef, {
+          id: txRef.key,
+          type: 'Bet Placement',
+          method: 'Sports',
+          amount: bet.stake,
+          date: new Date().toISOString(),
+          status: 'Success'
+       });
+
+       addToast('Bet Placed Successfully', `Ticket #${bet.id.slice(-6)} • Potential Win: ${currencySymbol}${bet.potentialReturn.toFixed(2)}`);
+    } catch (e) {
+       console.error(e);
+       addToast("Error", "Failed to place bet. Please try again.");
+    }
   };
 
-  const handleCashOut = (betId: string, amount: number) => {
-    setMyBets(prev => prev.map(bet => {
-        if (bet.id === betId) {
-            return { ...bet, status: 'cashed_out', cashOutOffer: amount };
-        }
-        return bet;
-    }));
-    triggerWin(amount);
-    
-    const newTx: Transaction = {
-       id: `co-${Date.now()}`,
-       type: 'Bet Win',
-       method: 'Cash Out',
-       amount: amount,
-       date: new Date().toLocaleString(),
-       status: 'Success'
-    };
-    setTransactions(prev => [newTx, ...prev]);
+  const handleCashOut = async (betId: string, amount: number) => {
+    if (!currentUser) return;
 
-    addToast('Cash Out Confirmed', `Credits added: ${currencySymbol}${amount.toFixed(2)}`);
+    try {
+        // Update Bet Status
+        const betRef = ref(db, `bets/${currentUser.uid}/${betId}`);
+        await update(betRef, { status: 'cashed_out', cashOutOffer: amount });
+
+        // Credit Main Balance
+        await update(ref(db, `users/${currentUser.uid}/wallet`), { main: wallet.main + amount });
+
+        triggerWin(amount);
+        
+        // Record Transaction
+        const txRef = push(ref(db, `transactions/${currentUser.uid}`));
+        await set(txRef, {
+           id: txRef.key,
+           type: 'Bet Win',
+           method: 'Cash Out',
+           amount: amount,
+           date: new Date().toISOString(),
+           status: 'Success'
+        });
+
+        addToast('Cash Out Confirmed', `Credits added: ${currencySymbol}${amount.toFixed(2)}`);
+    } catch (e) {
+        console.error(e);
+        addToast("Error", "Cash out failed.");
+    }
   };
 
   const renderContent = () => {
@@ -299,7 +489,7 @@ const App: React.FC = () => {
           case 'jackpot': return <JackpotGame />;
           case 'my-bets': return <MyBets bets={myBets} onCashOut={handleCashOut} />;
           case 'deposit': return <DepositView onDeposit={handleDeposit} currencySymbol={currencySymbol} />;
-          case 'withdraw': return <WithdrawView balance={balance} onWithdraw={handleWithdraw} currencySymbol={currencySymbol} />;
+          case 'withdraw': return <WithdrawView balance={wallet.main} onWithdraw={handleWithdraw} currencySymbol={currencySymbol} />;
           case 'profile': return <ProfileView onNavigate={setCurrentView} settings={settings} user={userProfile} onUpdateUser={setUserProfile} />;
           case 'transactions': return <TransactionsView transactions={transactions} currencySymbol={currencySymbol} />;
           case 'help': return <HelpView />;
@@ -326,6 +516,14 @@ const App: React.FC = () => {
   }
 
   // --- RENDER AUTH SCREEN IF NOT LOGGED IN ---
+  if (authLoading) {
+      return (
+        <div className="min-h-screen bg-slate-950 flex items-center justify-center text-emerald-500">
+           <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-emerald-500"></div>
+        </div>
+      );
+  }
+
   if (!isAuthenticated) {
     return <AuthScreen onAuthenticated={handleAuthSuccess} />;
   }
@@ -387,6 +585,9 @@ const App: React.FC = () => {
          settings={settings}
          onSettingsUpdate={setSettings}
          user={userProfile}
+         balance={wallet.main}
+         bonus={wallet.bonus}
+         currencySymbol={currencySymbol}
       />
 
       {/* Navbar */}
@@ -401,10 +602,10 @@ const App: React.FC = () => {
             </button>
             <div className="flex items-center gap-1 cursor-pointer" onClick={() => setCurrentView('sports')}>
                <div className="w-8 h-8 bg-gradient-to-br from-emerald-500 to-cyan-500 rounded-lg flex items-center justify-center transform rotate-3 shadow-lg shadow-emerald-500/20">
-                 <span className="font-black text-white text-lg italic">B</span>
+                 <span className="font-black text-white text-lg italic">N</span>
                </div>
                <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-slate-800 to-slate-500 dark:from-white dark:to-slate-400 hidden sm:block">
-                 BetPulse
+                 NXB
                </span>
             </div>
           </div>
@@ -422,7 +623,7 @@ const App: React.FC = () => {
             <div className="hidden sm:flex flex-col items-end mr-2">
                <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-wider font-bold">Main Balance</span>
                <CountUp 
-                  value={balance} 
+                  value={wallet.main} 
                   prefix={currencySymbol} 
                   className="text-emerald-500 dark:text-emerald-400 font-bold font-mono text-lg"
                   masked={settings.privacyMode}
@@ -527,7 +728,7 @@ const App: React.FC = () => {
                 <span className="text-[10px] font-mono tracking-widest uppercase">Latency: 14ms</span>
              </div>
              <p className="text-[10px] text-slate-400 dark:text-slate-600 max-w-xl mx-auto leading-relaxed">
-               BetPulse AI is a concept simulation engine powered by Google Gemini. No real currency is wagered or won. 
+               NXB is a concept simulation engine powered by Google Gemini. No real currency is wagered or won. 
                Data provided for demonstration purposes only. This application is a high-fidelity tech demo.
              </p>
           </div>

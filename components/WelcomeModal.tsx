@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { ShieldCheck, Cpu, Power } from 'lucide-react';
 
@@ -7,7 +8,7 @@ export const WelcomeModal = ({ onComplete }: { onComplete: () => void }) => {
 
   useEffect(() => {
     // Check if user has visited before
-    const hasVisited = localStorage.getItem('betpulse_onboarded');
+    const hasVisited = localStorage.getItem('nxb_onboarded');
     if (!hasVisited) {
       setIsOpen(true);
     }
@@ -18,7 +19,7 @@ export const WelcomeModal = ({ onComplete }: { onComplete: () => void }) => {
     
     // Simulate engine startup sequence
     setTimeout(() => {
-      localStorage.setItem('betpulse_onboarded', 'true');
+      localStorage.setItem('nxb_onboarded', 'true');
       setIsOpen(false);
       onComplete(); // Callback to trigger initial app sounds/anims
     }, 1500);

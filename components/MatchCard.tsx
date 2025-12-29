@@ -11,9 +11,10 @@ interface OddButtonProps {
   isSelected: boolean;
   onClick: (selection: BetSelection) => void;
   expanded?: boolean;
+  compact?: boolean; // NEW: Compact mode flag
 }
 
-const OddButton: React.FC<OddButtonProps> = ({ odd, match, isSelected, onClick, expanded = false }) => {
+const OddButton: React.FC<OddButtonProps> = ({ odd, match, isSelected, onClick, expanded = false, compact = false }) => {
   const [direction, setDirection] = useState<'up' | 'down' | null>(null);
 
   useEffect(() => {
@@ -25,6 +26,42 @@ const OddButton: React.FC<OddButtonProps> = ({ odd, match, isSelected, onClick, 
     }
   }, [odd.value, odd.prevValue]);
 
+  // --- COMPACT EXPERT STYLE ---
+  if (compact) {
+     return (
+        <button
+          onClick={(e) => { 
+             e.stopPropagation(); 
+             onClick({
+                matchId: match.id,
+                selectionId: odd.id,
+                matchTitle: `${match.homeTeam.name} vs ${match.awayTeam.name}`,
+                selectionLabel: odd.label === '1' ? match.homeTeam.name : odd.label === '2' ? match.awayTeam.name : odd.label,
+                oddValue: odd.value,
+                marketType: odd.marketType
+             })
+          }}
+          className={`
+            relative flex items-center justify-center h-full rounded transition-all duration-200 border group px-1
+            ${isSelected 
+               ? 'bg-emerald-600 text-white border-emerald-500' 
+               : 'bg-slate-100 dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-transparent hover:border-slate-400 dark:hover:border-slate-600'}
+          `}
+        >
+           <span className={`font-mono text-xs font-bold tracking-tighter ${
+              direction === 'up' ? 'text-emerald-500' : direction === 'down' ? 'text-red-500' : ''
+           } ${isSelected ? 'text-white' : ''}`}>
+              {odd.value.toFixed(2)}
+           </span>
+           {/* Tiny Indicator for drift */}
+           {direction && (
+              <div className={`absolute top-0 right-0 w-1.5 h-1.5 rounded-full ${direction === 'up' ? 'bg-emerald-500' : 'bg-red-500'}`} />
+           )}
+        </button>
+     );
+  }
+
+  // --- STANDARD CARD STYLE ---
   return (
     <button
       onClick={(e) => { e.stopPropagation(); onClick({
@@ -122,15 +159,20 @@ interface MatchCardProps {
   onOddClick: (selection: BetSelection) => void;
   selectedOdds: string[];
   displayMarket: 'main' | 'secondary';
+  variant?: 'card' | 'compact'; // NEW PROP
 }
 
-const MatchCard: React.FC<MatchCardProps> = memo(({ match, onOddClick, selectedOdds, displayMarket }) => {
+const MatchCard: React.FC<MatchCardProps> = memo(({ match, onOddClick, selectedOdds, displayMarket, variant = 'card' }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'markets' | 'stats'>('markets');
   const [aiTip, setAiTip] = useState<string | null>(null);
   const [isPlayerVisible, setIsPlayerVisible] = useState(false);
   
-  const visibleOdds = displayMarket === 'main' ? match.odds.main : (match.odds.secondary.length > 0 ? match.odds.secondary : match.odds.main);
+  // Safe Access to odds arrays
+  const mainOdds = match.odds?.main || [];
+  const secondaryOdds = match.odds?.secondary || [];
+  
+  const visibleOdds = displayMarket === 'main' ? mainOdds : (secondaryOdds.length > 0 ? secondaryOdds : mainOdds);
 
   // Auto-show player when expanded if live
   useEffect(() => {
@@ -156,92 +198,160 @@ const MatchCard: React.FC<MatchCardProps> = memo(({ match, onOddClick, selectedO
   };
 
   return (
-    <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md transition-shadow duration-300 overflow-hidden group">
+    <div className={`
+       transition-all duration-300 group
+       ${variant === 'card' 
+          ? 'bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md overflow-hidden' 
+          : 'bg-white dark:bg-slate-950/30 border-b border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900'}
+    `}>
       
       {/* --- Main Row (Click to Expand) --- */}
       <div 
         onClick={() => setIsOpen(!isOpen)}
-        className="flex flex-col sm:flex-row items-stretch cursor-pointer relative"
+        className={`flex cursor-pointer relative ${variant === 'card' ? 'flex-col sm:flex-row items-stretch' : 'flex-row items-center py-2 px-3 gap-3'}`}
       >
         
-        {/* Left: Match Info */}
-        <div className="flex-1 p-4 flex items-center justify-between sm:border-r border-slate-100 dark:border-slate-800/50 gap-4">
-           
-           {/* Time / Status Column */}
-           <div className="flex flex-col items-center justify-center w-14 shrink-0 gap-1">
-              {match.isLive ? (
-                 <>
-                   <div className="text-xs font-black text-red-500 animate-pulse flex flex-col items-center leading-none">
-                      <span className="w-2 h-2 rounded-full bg-red-500 mb-1"></span> 
-                      <span className="uppercase tracking-tighter font-bold">
-                        {match.sport === 'Basketball' ? match.period : (match.minute ? `${match.minute}'` : 'LIVE')}
-                      </span>
-                   </div>
-                   {match.hasStream && <Tv size={14} className="text-emerald-500 mt-1" />}
-                 </>
-              ) : (
-                 <>
-                   <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
-                      {match.startTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                   </span>
-                   <span className="text-[10px] text-slate-400 font-medium">
-                      {match.startTime.toLocaleDateString([], {day: 'numeric', month: 'short'})}
-                   </span>
-                 </>
-              )}
-           </div>
+        {/* === VARIANT: CARD LAYOUT === */}
+        {variant === 'card' && (
+           <>
+              {/* Left: Match Info */}
+              <div className="flex-1 p-4 flex items-center justify-between sm:border-r border-slate-100 dark:border-slate-800/50 gap-4">
+                 
+                 {/* Time / Status Column */}
+                 <div className="flex flex-col items-center justify-center w-14 shrink-0 gap-1">
+                    {match.isLive ? (
+                       <>
+                         <div className="text-xs font-black text-red-500 animate-pulse flex flex-col items-center leading-none">
+                            <span className="w-2 h-2 rounded-full bg-red-500 mb-1"></span> 
+                            <span className="uppercase tracking-tighter font-bold">
+                              {match.sport === 'Basketball' ? match.period : (match.minute ? `${match.minute}'` : 'LIVE')}
+                            </span>
+                         </div>
+                         {match.hasStream && <Tv size={14} className="text-emerald-500 mt-1" />}
+                       </>
+                    ) : (
+                       <>
+                         <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                            {match.startTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                         </span>
+                         <span className="text-[10px] text-slate-400 font-medium">
+                            {match.startTime.toLocaleDateString([], {day: 'numeric', month: 'short'})}
+                         </span>
+                       </>
+                    )}
+                 </div>
 
-           {/* Teams Column */}
-           <div className="flex-1 space-y-3">
-              <div className="flex items-center justify-between">
-                 <div className="flex items-center gap-2">
-                    <img src={match.homeTeam.logo} alt="" className="w-6 h-6 object-contain" />
-                    <span className="text-sm font-bold text-slate-900 dark:text-white truncate">{match.homeTeam.name}</span>
+                 {/* Teams Column */}
+                 <div className="flex-1 space-y-3">
+                    <div className="flex items-center justify-between">
+                       <div className="flex items-center gap-2">
+                          <img src={match.homeTeam.logo} alt="" className="w-6 h-6 object-contain" />
+                          <span className="text-sm font-bold text-slate-900 dark:text-white truncate">{match.homeTeam.name}</span>
+                       </div>
+                       {match.isLive && (
+                          <span className="text-emerald-500 dark:text-emerald-400 font-black font-mono text-xl md:text-2xl bg-emerald-50 dark:bg-emerald-900/30 px-2 py-1 rounded min-w-[2.5rem] text-center shadow-sm">
+                              {match.scores?.home}
+                          </span>
+                       )}
+                    </div>
+                    <div className="flex items-center justify-between">
+                       <div className="flex items-center gap-2">
+                          <img src={match.awayTeam.logo} alt="" className="w-6 h-6 object-contain" />
+                          <span className="text-sm font-bold text-slate-900 dark:text-white truncate">{match.awayTeam.name}</span>
+                       </div>
+                       {match.isLive && (
+                          <span className="text-emerald-500 dark:text-emerald-400 font-black font-mono text-xl md:text-2xl bg-emerald-50 dark:bg-emerald-900/30 px-2 py-1 rounded min-w-[2.5rem] text-center shadow-sm">
+                              {match.scores?.away}
+                          </span>
+                       )}
+                    </div>
                  </div>
-                 {match.isLive && (
-                    <span className="text-emerald-500 dark:text-emerald-400 font-black font-mono text-xl md:text-2xl bg-emerald-50 dark:bg-emerald-900/30 px-2 py-1 rounded min-w-[2.5rem] text-center shadow-sm">
-                        {match.scores?.home}
-                    </span>
-                 )}
               </div>
-              <div className="flex items-center justify-between">
-                 <div className="flex items-center gap-2">
-                    <img src={match.awayTeam.logo} alt="" className="w-6 h-6 object-contain" />
-                    <span className="text-sm font-bold text-slate-900 dark:text-white truncate">{match.awayTeam.name}</span>
-                 </div>
-                 {match.isLive && (
-                    <span className="text-emerald-500 dark:text-emerald-400 font-black font-mono text-xl md:text-2xl bg-emerald-50 dark:bg-emerald-900/30 px-2 py-1 rounded min-w-[2.5rem] text-center shadow-sm">
-                        {match.scores?.away}
-                    </span>
-                 )}
-              </div>
-           </div>
-        </div>
 
-        {/* Right: Odds Grid (The "Market" Face) */}
-        <div className="p-3 bg-slate-50 dark:bg-slate-950/30 sm:w-64 shrink-0 flex items-center">
-           <div className="grid grid-cols-3 gap-2 w-full">
-              {visibleOdds.slice(0, 3).map(odd => (
-                 <OddButton 
-                    key={odd.id} 
-                    odd={odd} 
-                    match={match}
-                    isSelected={selectedOdds.includes(odd.id)}
-                    onClick={onOddClick}
-                 />
-              ))}
-              {visibleOdds.length < 3 && (
-                 <div className="flex items-center justify-center text-xs text-slate-400">
-                    <Lock size={12} />
+              {/* Right: Odds Grid (The "Market" Face) */}
+              <div className="p-3 bg-slate-50 dark:bg-slate-950/30 sm:w-64 shrink-0 flex items-center">
+                 <div className="grid grid-cols-3 gap-2 w-full">
+                    {visibleOdds.slice(0, 3).map(odd => (
+                       <OddButton 
+                          key={odd.id} 
+                          odd={odd} 
+                          match={match}
+                          isSelected={selectedOdds.includes(odd.id)}
+                          onClick={onOddClick}
+                       />
+                    ))}
+                    {visibleOdds.length < 3 && (
+                       <div className="flex items-center justify-center text-xs text-slate-400">
+                          <Lock size={12} />
+                       </div>
+                    )}
                  </div>
-              )}
-           </div>
-        </div>
+              </div>
+           </>
+        )}
+
+        {/* === VARIANT: COMPACT / LIST LAYOUT === */}
+        {variant === 'compact' && (
+           <>
+               {/* 1. Time / Status (Tiny) */}
+               <div className="w-12 shrink-0 flex flex-col items-center justify-center">
+                  {match.isLive ? (
+                     <div className="text-[10px] font-black text-red-500 animate-pulse flex flex-col items-center leading-none">
+                        <span>{match.minute}'</span>
+                        {match.hasStream && <Tv size={10} className="mt-0.5" />}
+                     </div>
+                  ) : (
+                     <span className="text-[10px] font-bold text-slate-500">
+                        {match.startTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                     </span>
+                  )}
+               </div>
+
+               {/* 2. Teams (Single Line or Stacked Tight) */}
+               <div className="flex-1 flex flex-col justify-center min-w-0">
+                  <div className="flex items-center justify-between">
+                     <div className="flex items-center gap-2 overflow-hidden">
+                        <span className={`text-xs font-bold truncate ${match.isLive && (match.scores?.home || 0) > (match.scores?.away || 0) ? 'text-emerald-400' : 'text-slate-700 dark:text-slate-300'}`}>{match.homeTeam.name}</span>
+                        <span className="text-[10px] text-slate-400">v</span>
+                        <span className={`text-xs font-bold truncate ${match.isLive && (match.scores?.away || 0) > (match.scores?.home || 0) ? 'text-emerald-400' : 'text-slate-700 dark:text-slate-300'}`}>{match.awayTeam.name}</span>
+                     </div>
+                     {/* Score if Live */}
+                     {match.isLive && (
+                        <span className="text-emerald-500 font-black font-mono text-xs px-2">
+                           {match.scores?.home} - {match.scores?.away}
+                        </span>
+                     )}
+                  </div>
+               </div>
+
+               {/* 3. Odds (Compact Grid) */}
+               <div className="flex gap-1 h-8 shrink-0">
+                  {visibleOdds.slice(0, 3).map(odd => (
+                      <div key={odd.id} className="w-12 h-full">
+                         <OddButton 
+                            odd={odd} 
+                            match={match}
+                            isSelected={selectedOdds.includes(odd.id)}
+                            onClick={onOddClick}
+                            compact
+                         />
+                      </div>
+                  ))}
+                  
+                  {/* Plus Button */}
+                  <div className="w-6 h-full flex items-center justify-center bg-slate-100 dark:bg-slate-900 rounded text-[10px] font-bold text-slate-500 hover:text-emerald-500 transition-colors">
+                      +{mainOdds.length + secondaryOdds.length}
+                  </div>
+               </div>
+           </>
+        )}
         
         {/* Expand Toggle Visual */}
-        <div className="absolute top-1/2 right-0 -translate-y-1/2 w-4 bg-gradient-to-l from-slate-100 dark:from-slate-800 to-transparent h-full sm:flex items-center justify-center hidden opacity-0 group-hover:opacity-100 transition-opacity">
-           <ChevronDown size={14} className="text-slate-400" />
-        </div>
+        {variant === 'card' && (
+           <div className="absolute top-1/2 right-0 -translate-y-1/2 w-4 bg-gradient-to-l from-slate-100 dark:from-slate-800 to-transparent h-full sm:flex items-center justify-center hidden opacity-0 group-hover:opacity-100 transition-opacity">
+              <ChevronDown size={14} className="text-slate-400" />
+           </div>
+        )}
 
       </div>
 
@@ -328,7 +438,7 @@ const MatchCard: React.FC<MatchCardProps> = memo(({ match, onOddClick, selectedO
                  <div>
                     <h4 className="text-[10px] font-bold text-slate-500 uppercase mb-2">Match Winner</h4>
                     <div className="grid grid-cols-3 gap-2">
-                       {match.odds.main.map(odd => (
+                       {mainOdds.map(odd => (
                           <OddButton 
                              key={odd.id} 
                              odd={odd} 
@@ -342,11 +452,11 @@ const MatchCard: React.FC<MatchCardProps> = memo(({ match, onOddClick, selectedO
                  </div>
 
                  {/* Secondary Market */}
-                 {match.odds.secondary.length > 0 && (
+                 {secondaryOdds.length > 0 && (
                     <div>
                        <h4 className="text-[10px] font-bold text-slate-500 uppercase mb-2">Alternative Markets</h4>
                        <div className="grid grid-cols-2 gap-2">
-                          {match.odds.secondary.map(odd => (
+                          {secondaryOdds.map(odd => (
                              <OddButton 
                                 key={odd.id} 
                                 odd={odd} 

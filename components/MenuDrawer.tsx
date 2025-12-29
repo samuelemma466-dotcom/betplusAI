@@ -11,9 +11,23 @@ interface MenuDrawerProps {
   settings?: AppSettings;
   onSettingsUpdate?: (s: AppSettings) => void;
   user?: UserProfile;
+  balance?: number;
+  bonus?: number;
+  currencySymbol?: string;
 }
 
-const MenuDrawer: React.FC<MenuDrawerProps> = ({ isOpen, onClose, onNavigate, onLogout, settings, onSettingsUpdate, user }) => {
+const MenuDrawer: React.FC<MenuDrawerProps> = ({ 
+  isOpen, 
+  onClose, 
+  onNavigate, 
+  onLogout, 
+  settings, 
+  onSettingsUpdate, 
+  user,
+  balance = 0,
+  bonus = 0,
+  currencySymbol = '$'
+}) => {
   
   const handleNav = (view: AppView) => {
       onNavigate(view);
@@ -52,11 +66,11 @@ const MenuDrawer: React.FC<MenuDrawerProps> = ({ isOpen, onClose, onNavigate, on
              <div className="flex gap-2">
                 <div className="flex-1 bg-black/20 rounded-lg p-2 border border-white/10">
                    <div className="text-[10px] text-slate-300 uppercase font-bold">Main Balance</div>
-                   <div className="text-white font-bold">$2,450.50</div>
+                   <div className="text-white font-bold">{currencySymbol}{balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
                 </div>
                 <div className="flex-1 bg-black/20 rounded-lg p-2 border border-white/10">
                    <div className="text-[10px] text-slate-300 uppercase font-bold">Bonus</div>
-                   <div className="text-amber-400 font-bold">$150.00</div>
+                   <div className="text-amber-400 font-bold">{currencySymbol}{bonus.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
                 </div>
              </div>
           </div>

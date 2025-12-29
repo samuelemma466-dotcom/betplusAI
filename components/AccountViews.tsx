@@ -346,7 +346,7 @@ export const DepositView = ({ onDeposit, currencySymbol }: { onDeposit: (amount:
                                     </div>
                                     <div className="flex justify-between pb-1">
                                         <span className="text-slate-500">Name</span>
-                                        <span className="font-bold text-slate-900 dark:text-white">BetPulse Global</span>
+                                        <span className="font-bold text-slate-900 dark:text-white">NXB Global</span>
                                     </div>
                                 </div>
                             </div>

@@ -4,7 +4,7 @@ import { Match, SportCategory, BetSelection } from '../types';
 import { SPORTS } from '../constants';
 import MatchCard from './MatchCard';
 import AdBanner from './AdBanner';
-import { Trophy, Flame, Calendar, ChevronRight, TrendingUp, Clock, Filter, SlidersHorizontal, LayoutList, MonitorPlay } from 'lucide-react';
+import { Trophy, Flame, Calendar, ChevronRight, TrendingUp, Clock, Filter, SlidersHorizontal, LayoutList, MonitorPlay, LayoutGrid, List } from 'lucide-react';
 
 interface SportsViewProps {
   matches: Match[];
@@ -62,6 +62,7 @@ const SportsView: React.FC<SportsViewProps> = ({
   
   const [timeFilter, setTimeFilter] = useState<string>('all');
   const [globalMarket, setGlobalMarket] = useState<'main' | 'secondary'>('main');
+  const [viewMode, setViewMode] = useState<'card' | 'compact'>('card');
 
   // --- FILTERING LOGIC ---
   const filteredMatches = useMemo(() => {
@@ -181,27 +182,52 @@ const SportsView: React.FC<SportsViewProps> = ({
          </div>
       </div>
 
-      {/* 3. MARKET CONTROL RAIL (The "Pro" Switch) */}
+      {/* 3. MARKET CONTROL RAIL & VIEW TOGGLE */}
       <div className="px-4 py-3 bg-slate-50 dark:bg-slate-950 flex items-center justify-between border-b border-slate-200 dark:border-slate-800">
          <div className="flex items-center gap-2 text-slate-500">
             <SlidersHorizontal size={14} />
-            <span className="text-[10px] font-black uppercase tracking-widest">Market Display</span>
+            <span className="text-[10px] font-black uppercase tracking-widest hidden sm:inline">Market Display</span>
          </div>
-         <div className="flex gap-1">
-             {MARKET_Types.map(mt => (
-                <button 
-                   key={mt.id}
-                   onClick={() => setGlobalMarket(mt.id as any)}
-                   className={`
-                      px-3 py-1 rounded-md text-[10px] font-bold transition-all border
-                      ${globalMarket === mt.id 
-                         ? 'bg-slate-900 dark:bg-slate-200 text-white dark:text-slate-900 border-slate-900 dark:border-slate-200' 
-                         : 'bg-white dark:bg-slate-900 text-slate-500 border-slate-200 dark:border-slate-700'}
-                   `}
+         
+         <div className="flex items-center gap-4">
+             {/* Market Type Switch */}
+             <div className="flex gap-1">
+                 {MARKET_Types.map(mt => (
+                    <button 
+                       key={mt.id}
+                       onClick={() => setGlobalMarket(mt.id as any)}
+                       className={`
+                          px-3 py-1 rounded-md text-[10px] font-bold transition-all border
+                          ${globalMarket === mt.id 
+                             ? 'bg-slate-900 dark:bg-slate-200 text-white dark:text-slate-900 border-slate-900 dark:border-slate-200' 
+                             : 'bg-white dark:bg-slate-900 text-slate-500 border-slate-200 dark:border-slate-700'}
+                       `}
+                    >
+                       {mt.label}
+                    </button>
+                 ))}
+             </div>
+
+             {/* Vertical Separator */}
+             <div className="w-px h-4 bg-slate-300 dark:bg-slate-700"></div>
+
+             {/* View Mode Toggle (Card vs Compact) */}
+             <div className="flex bg-slate-200 dark:bg-slate-800 p-0.5 rounded-lg">
+                <button
+                   onClick={() => setViewMode('card')}
+                   className={`p-1.5 rounded-md transition-all ${viewMode === 'card' ? 'bg-white dark:bg-slate-600 shadow-sm text-slate-900 dark:text-white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700'}`}
+                   title="Card View"
                 >
-                   {mt.label}
+                   <LayoutGrid size={14} />
                 </button>
-             ))}
+                <button
+                   onClick={() => setViewMode('compact')}
+                   className={`p-1.5 rounded-md transition-all ${viewMode === 'compact' ? 'bg-white dark:bg-slate-600 shadow-sm text-slate-900 dark:text-white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700'}`}
+                   title="Compact List View"
+                >
+                   <List size={14} />
+                </button>
+             </div>
          </div>
       </div>
 
@@ -216,7 +242,7 @@ const SportsView: React.FC<SportsViewProps> = ({
                         count={matchesByLeague[league].length}
                         sportIcon={SPORTS.find(s => s.id === activeCategory)?.icon || '🏆'} 
                      />
-                     <div className="p-2 space-y-2">
+                     <div className={`p-2 ${viewMode === 'card' ? 'space-y-2' : 'space-y-0.5'}`}>
                         {matchesByLeague[league].map(match => (
                            <MatchCard 
                               key={match.id} 
@@ -224,6 +250,7 @@ const SportsView: React.FC<SportsViewProps> = ({
                               onOddClick={onOddClick}
                               selectedOdds={selectedOdds}
                               displayMarket={globalMarket}
+                              variant={viewMode}
                            />
                         ))}
                      </div>

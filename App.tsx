@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { SPORTS } from './constants';
 import { BetSelection, SportCategory, Match, PlacedBet, AppView, AppSettings, Transaction, UserProfile } from './types';
@@ -36,14 +37,24 @@ const App: React.FC = () => {
   const [authLoading, setAuthLoading] = useState(true); // Start true to block UI until Firebase replies
   const [needsVerification, setNeedsVerification] = useState(false);
   
-  // --- APP STATE ---
-  const [activeCategory, setActiveCategory] = useState<SportCategory>('Soccer');
+  // --- APP STATE (Persisted) ---
+  const [activeCategory, setActiveCategory] = useState<SportCategory>(() => 
+    (localStorage.getItem('nxb_activeCategory') as SportCategory) || 'Soccer'
+  );
+  
+  const [filter, setFilter] = useState<'all' | 'live' | 'upcoming'>(() => 
+    (localStorage.getItem('nxb_filter') as 'all' | 'live' | 'upcoming') || 'all'
+  );
+
+  const [currentView, setCurrentView] = useState<AppView>(() => 
+    (localStorage.getItem('nxb_currentView') as AppView) || 'sports'
+  );
+
+  // --- APP STATE (Transient) ---
   const [selections, setSelections] = useState<BetSelection[]>([]);
   const [isMobileBetslipOpen, setIsMobileBetslipOpen] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isConciergeOpen, setIsConciergeOpen] = useState(false);
-  const [filter, setFilter] = useState<'all' | 'live' | 'upcoming'>('all');
-  const [currentView, setCurrentView] = useState<AppView>('sports');
   const [myBets, setMyBets] = useState<PlacedBet[]>([]);
   
   const [wallet, setWallet] = useState<WalletState>({ main: 0, bonus: 0 });
@@ -81,6 +92,19 @@ const App: React.FC = () => {
   const [apiMatches, setApiMatches] = useState<Match[]>([]);
   const matches = [...apiMatches, ...firebaseMatches];
   const [matchesLoading, setMatchesLoading] = useState(true); // Loading state for matches
+
+  // --- PERSISTENCE EFFECTS ---
+  useEffect(() => {
+    localStorage.setItem('nxb_activeCategory', activeCategory);
+  }, [activeCategory]);
+
+  useEffect(() => {
+    localStorage.setItem('nxb_filter', filter);
+  }, [filter]);
+
+  useEffect(() => {
+    localStorage.setItem('nxb_currentView', currentView);
+  }, [currentView]);
 
   // --- AUTH INITIALIZATION ---
   useEffect(() => {
@@ -217,6 +241,10 @@ const App: React.FC = () => {
         setIsMenuOpen(false);
         setCurrentView('sports');
         setSelections([]);
+        // Clear local storage for session-specific UI state
+        localStorage.removeItem('nxb_activeCategory');
+        localStorage.removeItem('nxb_filter');
+        localStorage.removeItem('nxb_currentView');
     });
   };
 

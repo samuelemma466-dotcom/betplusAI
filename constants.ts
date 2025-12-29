@@ -1,3 +1,4 @@
+
 import { Match, SportCategory, JackpotMatch } from './types';
 
 export const SPORTS: { id: SportCategory; icon: string; name: string }[] = [
@@ -16,8 +17,8 @@ export const MOCK_MATCHES: Match[] = [
     startTime: new Date(new Date().getTime() - 1000 * 60 * 34), // Started 34 mins ago
     isLive: true,
     hasStream: true,
-    // Soccer Highlights (Generic/Embeddable)
-    streamUrl: "https://www.youtube.com/embed/Yt-0jI8g1gM?autoplay=1&mute=1&controls=1", 
+    // Updated Live Stream Link
+    streamUrl: "https://www.youtube.com/embed/ttsVHRfiL4w?autoplay=1&mute=1&controls=1", 
     minute: 34,
     homeTeam: { name: 'Manchester City', logo: 'https://crests.football-data.org/65.svg' },
     awayTeam: { name: 'Arsenal', logo: 'https://crests.football-data.org/57.svg' },

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Eye, EyeOff, Lock, Mail, ArrowRight, ShieldCheck, Fingerprint, ArrowLeft, Check, RefreshCw, AlertCircle } from 'lucide-react';
+import { Eye, EyeOff, Lock, Mail, ArrowRight, ShieldCheck, Fingerprint, ArrowLeft, Check, RefreshCw, AlertCircle, WifiOff, Globe } from 'lucide-react';
 import { 
   createUserWithEmailAndPassword, 
   signInWithEmailAndPassword, 
@@ -9,7 +9,7 @@ import {
   GoogleAuthProvider,
   signInWithPopup,
   User,
-  getAuth
+  AuthError
 } from "firebase/auth";
 import { auth } from "../services/firebase";
 
@@ -46,6 +46,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated, initial
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(null); // Track code for specific UI handling
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   
   // Verification State
@@ -108,12 +109,43 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated, initial
       }
   }, [resendCooldown]);
 
+  const mapAuthError = (err: AuthError) => {
+      console.error("Firebase Auth Error:", err);
+      setErrorCode(err.code);
+      
+      switch (err.code) {
+          case 'auth/invalid-credential':
+          case 'auth/user-not-found':
+          case 'auth/wrong-password':
+              return "Invalid email or password. Please check your credentials.";
+          case 'auth/email-already-in-use':
+              return "This email is already in use. Please sign in instead.";
+          case 'auth/weak-password':
+              return "Password is too weak. Use at least 6 characters.";
+          case 'auth/too-many-requests':
+              return "Too many attempts. Access temporarily blocked. Try again later.";
+          case 'auth/network-request-failed':
+              return "Network error. Please check your internet connection.";
+          case 'auth/unauthorized-domain':
+              return `Configuration Error: The domain '${window.location.hostname}' is not authorized in Firebase Console.`;
+          case 'auth/popup-closed-by-user':
+              return "Sign in cancelled.";
+          case 'auth/popup-blocked':
+              return "Pop-up blocked by browser. Please allow pop-ups for this site.";
+          case 'auth/operation-not-allowed':
+              return "Login method not enabled in Firebase Console.";
+          default:
+              return err.message || "An unexpected authentication error occurred.";
+      }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) return;
 
     setIsLoading(true);
     setError(null);
+    setErrorCode(null);
     setSuccessMsg(null);
 
     try {
@@ -139,19 +171,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated, initial
         }
       }
     } catch (err: any) {
-      console.error(err);
-      let msg = "An error occurred.";
-      if (err.code === 'auth/invalid-credential') msg = "Invalid email or password.";
-      else if (err.code === 'auth/email-already-in-use') msg = "Email already in use.";
-      else if (err.code === 'auth/weak-password') msg = "Password is too weak.";
-      else if (err.code === 'auth/user-not-found') msg = "No account found with this email.";
-      else if (err.code === 'auth/wrong-password') msg = "Incorrect password.";
-      else if (err.code === 'auth/too-many-requests') msg = "Too many attempts. Try again later.";
-      else if (err.code === 'auth/network-request-failed') msg = "Network error. Check your connection.";
-      else if (err.code === 'auth/unauthorized-domain') {
-          msg = `Domain unauthorized: Add '${window.location.hostname}' to Firebase Console > Authentication > Settings > Authorized Domains.`;
-      }
-      setError(msg);
+      setError(mapAuthError(err));
     } finally {
       setIsLoading(false);
     }
@@ -160,32 +180,14 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated, initial
   const handleGoogleLogin = async () => {
     setIsLoading(true);
     setError(null);
+    setErrorCode(null);
     try {
         const provider = new GoogleAuthProvider();
         const result = await signInWithPopup(auth, provider);
         // Google accounts are auto-verified
         onAuthenticated(result.user);
     } catch (err: any) {
-        console.error("Google Login Error:", err);
-        let msg = "Google sign in failed.";
-        
-        // Handle specific error codes
-        if (err.code === 'auth/popup-closed-by-user') {
-            msg = "Sign in cancelled.";
-        } else if (err.code === 'auth/popup-blocked') {
-            msg = "Pop-up blocked by browser. Please allow pop-ups for this site.";
-        } else if (err.code === 'auth/operation-not-allowed') {
-            msg = "Google Sign-In not enabled in Firebase Console.";
-        } else if (err.code === 'auth/unauthorized-domain') {
-            // CRITICAL FIX: Inform user/developer about domain whitelisting
-            msg = `Domain unauthorized: Add '${window.location.hostname}' to Firebase Console > Authentication > Settings > Authorized Domains.`;
-        } else if (err.code === 'auth/cancelled-popup-request') {
-            msg = "Only one popup request allowed at one time.";
-        } else if (err.message) {
-            msg = err.message;
-        }
-        
-        setError(msg);
+        setError(mapAuthError(err));
     } finally {
         setIsLoading(false);
     }
@@ -200,16 +202,14 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated, initial
 
       setIsLoading(true);
       setError(null);
+      setErrorCode(null);
       setSuccessMsg(null);
 
       try {
           await sendPasswordResetEmail(auth, email);
           setSuccessMsg("Password reset link sent! Check your email.");
       } catch (err: any) {
-          console.error(err);
-          let msg = "Failed to send reset email.";
-          if (err.code === 'auth/user-not-found') msg = "No account found with this email.";
-          setError(msg);
+          setError(mapAuthError(err));
       } finally {
           setIsLoading(false);
       }
@@ -225,8 +225,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated, initial
           } else {
               setError("Email not verified yet. Please click the link in your email.");
           }
-      } catch (e) {
-          console.error(e);
+      } catch (e: any) {
           setError("Failed to check status. Try again.");
       } finally {
           setIsLoading(false);
@@ -290,7 +289,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated, initial
       </div>
 
       {/* Right Panel: Form */}
-      <div className="flex-1 bg-white dark:bg-slate-950 flex items-center justify-center p-6 md:p-12 relative">
+      <div className="flex-1 bg-white dark:bg-slate-950 flex items-center justify-center p-6 md:p-12 relative overflow-y-auto">
          <div className="w-full max-w-md animate-in slide-in-from-bottom-8 duration-700">
             
             {/* VERIFICATION PENDING VIEW */}
@@ -491,8 +490,11 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated, initial
                         </div>
 
                         {error && (
-                            <div className="text-red-500 text-xs font-bold bg-red-100 dark:bg-red-900/20 p-3 rounded-lg border border-red-200 dark:border-red-900/50 break-words">
-                            {error}
+                            <div className={`p-4 rounded-xl text-xs font-bold border flex items-start gap-3 break-words ${errorCode === 'auth/unauthorized-domain' ? 'bg-amber-100 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-900/50' : errorCode === 'auth/network-request-failed' ? 'bg-blue-100 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-900/50' : 'bg-red-100 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-200 dark:border-red-900/50'}`}>
+                                {errorCode === 'auth/unauthorized-domain' && <Globe size={18} className="shrink-0 mt-0.5" />}
+                                {errorCode === 'auth/network-request-failed' && <WifiOff size={18} className="shrink-0 mt-0.5" />}
+                                {!['auth/unauthorized-domain', 'auth/network-request-failed'].includes(errorCode || '') && <AlertCircle size={18} className="shrink-0 mt-0.5" />}
+                                <span>{error}</span>
                             </div>
                         )}
 
@@ -541,7 +543,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated, initial
                     <p className="text-slate-500 text-sm">
                         {mode === 'login' ? "Don't have an account?" : "Already have an account?"}{" "}
                         <button 
-                            onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError(null); }}
+                            onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError(null); setErrorCode(null); }}
                             className="font-bold text-emerald-600 hover:text-emerald-500 transition-colors"
                         >
                             {mode === 'login' ? 'Sign up' : 'Log in'}

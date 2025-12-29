@@ -2,8 +2,8 @@
 import { GoogleGenAI } from "@google/genai";
 import { Match } from "../types";
 
-// Always use process.env.API_KEY directly as per GenAI guidelines
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Using user provided API key
+const ai = new GoogleGenAI({ apiKey: 'AIzaSyC7xcbx_ZRgjC_CaXK1u8Ge8lsGeDjq14w' });
 
 export const getMatchPrediction = async (match: Match): Promise<string> => {
   try {

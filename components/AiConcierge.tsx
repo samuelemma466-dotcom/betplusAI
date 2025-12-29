@@ -45,7 +45,7 @@ const AiConcierge: React.FC<{ isOpen: boolean; onClose: () => void }> = ({ isOpe
 
   const startSession = async () => {
     setIsConnecting(true);
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: 'AIzaSyC7xcbx_ZRgjC_CaXK1u8Ge8lsGeDjq14w' });
     
     audioCtx.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
     const inputCtx = new AudioContext({ sampleRate: 16000 });

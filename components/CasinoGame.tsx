@@ -4,7 +4,7 @@ import {
   Play, Flame, Search, Zap, X, RotateCw, Trophy, History, ShieldCheck, 
   Info, Bomb, Gem, Coins, ChevronRight, Volume2, Settings2, Sparkles, 
   TrendingUp, Users, MessageSquare, Send, Crown, Ghost, LayoutGrid, 
-  Gamepad2, Star, Timer, Heart, MonitorPlay, Dice6, BarChart3, Loader2, ArrowLeft, Maximize2, Minimize2
+  Gamepad2, Star, Timer, Heart, MonitorPlay, Dice6, BarChart3, Loader2, ArrowLeft, Maximize2, Minimize2, Tv
 } from 'lucide-react';
 import { db } from '../services/firebase';
 import { ref, onValue, get } from 'firebase/database';
@@ -27,8 +27,9 @@ interface CasinoGameData {
 
 const CATEGORIES = [
   { id: 'All', label: "Lobby", icon: LayoutGrid },
-  { id: 'Crash', label: "Crash", icon: TrendingUp },
   { id: 'Live Casino', label: "Live Casino", icon: MonitorPlay },
+  { id: 'Game Shows', label: "Game Shows", icon: Tv },
+  { id: 'Crash', label: "Crash", icon: TrendingUp },
   { id: 'Slots', label: "Slots", icon: Gamepad2 },
   { id: 'Arcade', label: "Arcade", icon: Dice6 },
   { id: 'Table Games', label: "Table Games", icon: BarChart3 },
@@ -310,6 +311,125 @@ const AviatorGame = ({ onWin }: { onWin: (amt: number) => void }) => {
     );
 };
 
+// --- SIMULATED LIVE VIDEO INTERFACE (HLS/WebRTC Mock) ---
+const LiveVideoGame = ({ game, onWin }: { game: CasinoGameData, onWin: (amt: number) => void }) => {
+    const [isLoading, setIsLoading] = useState(true);
+    const [selectedChip, setSelectedChip] = useState(500);
+    const [placedBet, setPlacedBet] = useState(false);
+    
+    // Simulate Video Load
+    useEffect(() => {
+        const timer = setTimeout(() => setIsLoading(false), 2500);
+        return () => clearTimeout(timer);
+    }, []);
+
+    const handlePlaceBet = () => {
+        setPlacedBet(true);
+        setTimeout(() => {
+            setPlacedBet(false);
+            // Simulate 50% chance of win for demo purposes
+            if (Math.random() > 0.5) {
+                onWin(selectedChip * 2);
+            }
+        }, 3000);
+    }
+
+    return (
+        <div className="relative w-full h-full flex flex-col bg-slate-900">
+            {/* Main Video Area */}
+            <div className="flex-1 relative overflow-hidden flex items-center justify-center bg-black">
+                {/* Background Image simulating Video Feed */}
+                <div 
+                    className={`absolute inset-0 bg-cover bg-center transition-opacity duration-1000 ${isLoading ? 'opacity-0 blur-xl' : 'opacity-100'}`}
+                    style={{ backgroundImage: `url(${game.image})` }}
+                ></div>
+                
+                {/* Connecting Overlay */}
+                {isLoading && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-black z-20">
+                         <Loader2 size={48} className="text-emerald-500 animate-spin mb-4" />
+                         <p className="text-emerald-500 font-mono text-sm animate-pulse">ESTABLISHING SECURE FEED...</p>
+                         <p className="text-slate-500 text-xs mt-2">Server: LDN-04 • Protocol: WebRTC • <span className="text-yellow-500">Latency: 12ms</span></p>
+                    </div>
+                )}
+
+                {/* Live Badge & UI Overlay */}
+                {!isLoading && (
+                    <div className="absolute inset-0 pointer-events-none">
+                        {/* Top Left: Dealer Info */}
+                        <div className="absolute top-4 left-4 flex items-center gap-2">
+                             <div className="bg-black/40 backdrop-blur-md text-white px-3 py-1.5 rounded-lg border border-white/10 flex items-center gap-2">
+                                <span className="w-2 h-2 rounded-full bg-red-600 animate-pulse shadow-[0_0_10px_red]"></span>
+                                <span className="font-bold text-xs">LIVE</span>
+                             </div>
+                             <div className="bg-black/40 backdrop-blur-md text-white px-3 py-1.5 rounded-lg border border-white/10 flex items-center gap-2">
+                                <Users size={12} className="text-emerald-400" />
+                                <span className="font-mono text-xs font-bold">{game.players?.toLocaleString()}</span>
+                             </div>
+                        </div>
+
+                         {/* Table Name */}
+                         <div className="absolute top-4 right-4 text-right">
+                             <h2 className="text-white font-black text-xl drop-shadow-lg uppercase italic">{game.name}</h2>
+                             <p className="text-emerald-400 text-xs font-bold drop-shadow-md">Dealer: {game.dealer}</p>
+                         </div>
+                    </div>
+                )}
+            </div>
+
+            {/* Betting Interface (Bottom) */}
+            <div className="h-auto bg-slate-900 border-t border-slate-800 p-4 relative z-20">
+                <div className="max-w-3xl mx-auto flex items-end justify-between gap-4">
+                     {/* Chip Selector */}
+                     <div className="flex-1">
+                        <div className="text-[10px] text-slate-500 font-bold uppercase mb-2 ml-1">Select Chip Amount</div>
+                        <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2">
+                            {[100, 500, 1000, 5000, 10000].map(amt => (
+                                <button 
+                                   key={amt}
+                                   onClick={() => setSelectedChip(amt)}
+                                   className={`
+                                      w-12 h-12 rounded-full flex items-center justify-center font-bold text-[10px] shrink-0 border-2 shadow-lg transition-transform active:scale-95
+                                      ${selectedChip === amt 
+                                          ? 'border-white -translate-y-2 shadow-emerald-500/20 bg-gradient-to-br from-emerald-500 to-emerald-700 text-white' 
+                                          : 'border-transparent bg-slate-800 text-slate-400 hover:bg-slate-700'}
+                                   `}
+                                >
+                                   {amt >= 1000 ? `${amt/1000}k` : amt}
+                                </button>
+                            ))}
+                        </div>
+                     </div>
+
+                     {/* Action Button */}
+                     <div className="flex-1 max-w-[200px]">
+                         <div className="text-right text-[10px] text-slate-500 font-bold uppercase mb-2">Total Bet: ₦{selectedChip}</div>
+                         <button 
+                            onClick={handlePlaceBet}
+                            disabled={isLoading || placedBet}
+                            className={`
+                                w-full h-14 rounded-xl font-black text-lg shadow-xl transition-all flex flex-col items-center justify-center leading-none
+                                ${placedBet ? 'bg-slate-700 text-slate-500 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-500 text-white border-b-4 border-emerald-800 active:border-b-0 active:translate-y-1'}
+                            `}
+                         >
+                            {placedBet ? 'ACCEPTED' : 'PLACE BET'}
+                         </button>
+                     </div>
+                </div>
+                
+                {/* Recent Results Strip (Fake OCR) */}
+                <div className="flex justify-center gap-1 mt-4 opacity-50">
+                    {Array.from({length: 12}).map((_, i) => (
+                        <div key={i} className={`w-6 h-6 rounded-full flex items-center justify-center text-[8px] font-bold ${Math.random() > 0.5 ? 'bg-red-600 text-white' : 'bg-black text-white border border-slate-700'}`}>
+                           {Math.floor(Math.random() * 36)}
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+};
+
 // --- MAIN CASINO MODULE ---
 const CasinoGame: React.FC<{ onWin: (amt: number) => void }> = ({ onWin }) => {
   const [activeTab, setActiveTab] = useState('All');
@@ -361,6 +481,11 @@ const CasinoGame: React.FC<{ onWin: (amt: number) => void }> = ({ onWin }) => {
   // --- EXPERT GAME PLAY INTERFACE (Overlay) ---
   if (activeGame) {
      const gameData = gamesList.find(g => g.id === activeGame);
+     // Determine which engine to use
+     const isLiveStreamGame = gameData?.category === 'Live Casino' || gameData?.category === 'Game Shows';
+     const isMines = activeGame === 'mines';
+     const isAviator = activeGame === 'aviator';
+
      return (
         <div className={`fixed inset-0 z-[100] bg-black flex flex-col animate-in fade-in duration-300 ${isFullscreen ? 'p-0' : ''}`}>
            {/* Game Header */}
@@ -389,10 +514,12 @@ const CasinoGame: React.FC<{ onWin: (amt: number) => void }> = ({ onWin }) => {
 
            {/* Game Viewport */}
            <div className="flex-1 bg-slate-950 relative overflow-y-auto">
-              {activeGame === 'mines' ? (
+              {isMines ? (
                  <MinesGame onWin={onWin} />
-              ) : activeGame === 'aviator' ? (
+              ) : isAviator ? (
                  <AviatorGame onWin={onWin} />
+              ) : isLiveStreamGame && gameData ? (
+                 <LiveVideoGame game={gameData} onWin={onWin} />
               ) : (
                  <div className="w-full h-full flex flex-col items-center justify-center text-center p-6 relative">
                     <div className="absolute inset-0 opacity-20 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')]"></div>

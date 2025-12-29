@@ -154,6 +154,28 @@ const TeamForm = ({ name, results }: { name: string, results: ('W'|'L'|'D')[] })
   </div>
 );
 
+// --- YOUTUBE URL HELPER ---
+const getEmbedUrl = (url: string) => {
+    if (!url) return '';
+    // Handle standard watch URLs
+    if (url.includes('youtube.com/watch?v=')) {
+        const videoId = url.split('v=')[1]?.split('&')[0];
+        return `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&controls=1`;
+    }
+    // Handle short URLs
+    if (url.includes('youtu.be/')) {
+        const videoId = url.split('youtu.be/')[1]?.split('?')[0];
+        return `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&controls=1`;
+    }
+    // Handle generic embeds (assume they are already correct or handle autoplay)
+    if (url.includes('youtube.com/embed/')) {
+        if (!url.includes('autoplay')) {
+           return `${url}${url.includes('?') ? '&' : '?'}autoplay=1&mute=1`;
+        }
+    }
+    return url;
+};
+
 interface MatchCardProps {
   match: Match;
   onOddClick: (selection: BetSelection) => void;
@@ -196,6 +218,8 @@ const MatchCard: React.FC<MatchCardProps> = memo(({ match, onOddClick, selectedO
     setActiveTab('stats');
     if (!isOpen) setIsOpen(true);
   };
+
+  const streamEmbedUrl = match.streamUrl ? getEmbedUrl(match.streamUrl) : '';
 
   return (
     <div className={`
@@ -360,11 +384,11 @@ const MatchCard: React.FC<MatchCardProps> = memo(({ match, onOddClick, selectedO
         <div className="bg-slate-50 dark:bg-slate-950/50 border-t border-slate-200 dark:border-slate-800 p-4 animate-in slide-in-from-top-1">
            
            {/* LIVE STREAM PLAYER */}
-           {match.isLive && match.hasStream && match.streamUrl && isPlayerVisible && (
+           {match.isLive && match.hasStream && streamEmbedUrl && isPlayerVisible && (
               <div className="mb-6 rounded-xl overflow-hidden bg-black shadow-2xl relative group animate-in zoom-in-95 duration-300">
                  <div className="aspect-video w-full relative">
                      <iframe 
-                        src={match.streamUrl} 
+                        src={streamEmbedUrl} 
                         className="w-full h-full border-0" 
                         allow="autoplay; encrypted-media; picture-in-picture" 
                         allowFullScreen
@@ -387,7 +411,10 @@ const MatchCard: React.FC<MatchCardProps> = memo(({ match, onOddClick, selectedO
                         <Tv size={14} className="text-emerald-400" />
                         <span className="font-bold">Live Stream</span>
                      </div>
-                     <span className="text-slate-400">Low Latency Mode Active</span>
+                     <div className="flex items-center gap-2">
+                        <span className="text-slate-400">Powered by</span>
+                        <span className="font-bold text-white bg-red-600 px-1 rounded text-[9px]">YouTube</span>
+                     </div>
                  </div>
               </div>
            )}

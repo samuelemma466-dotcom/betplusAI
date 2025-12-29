@@ -10,8 +10,6 @@ const HEADERS = {
 };
 
 // Priority League IDs to ensure quality content
-// 39: Premier League, 140: La Liga, 135: Serie A, 78: Bundesliga, 61: Ligue 1
-// 2: UCL, 3: Europa, 848: Conference, 1: World Cup, 274: NPFL (Nigeria), 279: KPL (Kenya)
 const PRIORITY_LEAGUES = [39, 140, 135, 78, 61, 2, 3, 848, 1, 274, 279];
 
 // Deterministic random number generator based on seed
@@ -21,24 +19,45 @@ const seededRandom = (seed: number) => {
 };
 
 // Simulate odds since the free API tier might not provide them reliably for all fixtures
-const generateSimulatedOdds = (fixtureId: number): { main: Odd[], secondary: Odd[] } => {
-    const r1 = seededRandom(fixtureId);
-    const r2 = seededRandom(fixtureId + 1);
+// Enhanced: Accepts isLive param to introduce drift over time for live matches
+const generateSimulatedOdds = (fixtureId: number, isLive: boolean): { main: Odd[], secondary: Odd[] } => {
+    let r1 = seededRandom(fixtureId);
+    let r2 = seededRandom(fixtureId + 1);
     
-    // Simulate realistic 1x2 odds
-    const home = 1.5 + (r1 * 3.0); // 1.5 to 4.5
-    const draw = 2.5 + (r2 * 2.0); // 2.5 to 4.5
-    const away = 1.5 + ((1-r1) * 3.0); // Inverse of home roughly
+    // For live matches, introduce volatility based on time
+    if (isLive) {
+        // Use Date.now() but stepped every 5 seconds to match polling, scaled down
+        const timeStep = Math.floor(Date.now() / 5000); 
+        // Create a drift factor that oscillates slightly
+        const drift = Math.sin(timeStep + fixtureId) * 0.05; 
+        
+        // Apply drift
+        r1 = r1 + drift;
+        // Inverse drift for the other side slightly
+        r2 = r2 - (drift * 0.5);
+    }
+    
+    // Clamp values to sane probabilities (0.1 to 0.9)
+    const prob1 = Math.max(0.1, Math.min(0.9, 0.2 + (Math.abs(r1) * 0.6))); 
+    const probX = Math.max(0.1, Math.min(0.4, 0.15 + (Math.abs(r2) * 0.2)));
+    const prob2 = Math.max(0.05, 1 - prob1 - probX); // Remainder
+
+    // Convert probability to Decimal Odds (plus a small house edge margin)
+    // Margin approx 1.05 to 1.10
+    const margin = 1.08;
+    const odd1 = (1 / prob1) / margin; // e.g. 1/0.5 = 2.0 -> 1.85
+    const oddX = (1 / probX) / margin;
+    const odd2 = (1 / prob2) / margin;
 
     return {
         main: [
-            { id: `odd-${fixtureId}-1`, label: '1', value: parseFloat(home.toFixed(2)), marketType: '1x2' },
-            { id: `odd-${fixtureId}-x`, label: 'X', value: parseFloat(draw.toFixed(2)), marketType: '1x2' },
-            { id: `odd-${fixtureId}-2`, label: '2', value: parseFloat(away.toFixed(2)), marketType: '1x2' },
+            { id: `odd-${fixtureId}-1`, label: '1', value: parseFloat(odd1.toFixed(2)), marketType: '1x2' },
+            { id: `odd-${fixtureId}-x`, label: 'X', value: parseFloat(oddX.toFixed(2)), marketType: '1x2' },
+            { id: `odd-${fixtureId}-2`, label: '2', value: parseFloat(odd2.toFixed(2)), marketType: '1x2' },
         ],
         secondary: [
-            { id: `odd-${fixtureId}-o`, label: 'Over 2.5', value: 1.85, marketType: 'OverUnder' },
-            { id: `odd-${fixtureId}-u`, label: 'Under 2.5', value: 1.95, marketType: 'OverUnder' },
+            { id: `odd-${fixtureId}-o`, label: 'Over 2.5', value: parseFloat((1.75 + (r1 * 0.4)).toFixed(2)), marketType: 'OverUnder' },
+            { id: `odd-${fixtureId}-u`, label: 'Under 2.5', value: parseFloat((1.75 + (r2 * 0.4)).toFixed(2)), marketType: 'OverUnder' },
         ]
     };
 };
@@ -48,11 +67,11 @@ const transformFixtureToMatch = (data: any): Match => {
         const { fixture, teams, goals, league } = data;
         if (!fixture || !teams) return null as any;
 
-        const odds = generateSimulatedOdds(fixture.id);
-
         // Determine status
         const liveStatus = ['1H', '2H', 'HT', 'ET', 'P', 'LIVE'];
         const isLive = liveStatus.includes(fixture.status?.short);
+
+        const odds = generateSimulatedOdds(fixture.id, isLive);
 
         return {
             id: `api_${fixture.id}`,
@@ -101,8 +120,6 @@ export const fetchFootballMatches = async (): Promise<Match[]> => {
     const today = new Date().toISOString().split('T')[0];
 
     // Parallel fetch: Live matches (fast) and Today's Schedule (large)
-    // We catch errors individually to ensure one failure doesn't break everything
-    // Added explicit timeout to prevent hanging
     const [liveResponse, scheduledResponse] = await Promise.all([
         fetchWithTimeout(`${BASE_URL}/fixtures?live=all`, { method: 'GET', headers: HEADERS }).catch(e => null),
         fetchWithTimeout(`${BASE_URL}/fixtures?date=${today}`, { method: 'GET', headers: HEADERS }).catch(e => null)
@@ -114,19 +131,16 @@ export const fetchFootballMatches = async (): Promise<Match[]> => {
     if (scheduledResponse && scheduledResponse.ok) {
         const scheduledData = await scheduledResponse.json();
         
-        // Robust check for array existence
         if (scheduledData && Array.isArray(scheduledData.response)) {
-            // Filter Logic:
-            // 1. Prioritize major leagues
+            // Filter Logic: Prioritize major leagues
             let filteredRaw = scheduledData.response.filter((item: any) => 
                 item?.league?.id && PRIORITY_LEAGUES.includes(item.league.id)
             );
 
-            // Fallback if no major league games today, pick top items to ensure content
+            // Fallback if no major league games
             if (filteredRaw.length < 5) {
                 filteredRaw = scheduledData.response.slice(0, 30);
             } else {
-                // Limit to 50 to prevent UI lag
                 filteredRaw = filteredRaw.slice(0, 50);
             }
 
@@ -134,17 +148,14 @@ export const fetchFootballMatches = async (): Promise<Match[]> => {
                 const match = transformFixtureToMatch(item);
                 if (match) matchesMap.set(item.fixture.id, match);
             });
-        } else if (scheduledData.errors) {
-            console.warn("API Error (Scheduled):", scheduledData.errors);
         }
     }
 
-    // 2. Process Live Matches (Always include all live games)
+    // 2. Process Live Matches (Always include all live games, overwriting scheduled)
     if (liveResponse && liveResponse.ok) {
         const liveData = await liveResponse.json();
         if (liveData && Array.isArray(liveData.response)) {
             liveData.response.forEach((item: any) => {
-                // Overwrite scheduled entry with live data if it exists
                 const match = transformFixtureToMatch(item);
                 if (match) matchesMap.set(item.fixture.id, match);
             });
@@ -163,7 +174,6 @@ export const fetchFootballMatches = async (): Promise<Match[]> => {
 
   } catch (error) {
     console.error("Failed to fetch football matches:", error);
-    // Return empty array instead of crashing so app can load
     return [];
   }
 };

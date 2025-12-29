@@ -2,7 +2,7 @@
 import React, { useState, useMemo } from 'react';
 import { Match, SportCategory, BetSelection } from '../types';
 import { SPORTS } from '../constants';
-import MatchCard from './MatchCard';
+import MatchCard, { MatchCardSkeleton } from './MatchCard';
 import AdBanner from './AdBanner';
 import { Trophy, Flame, Calendar, ChevronRight, TrendingUp, Clock, Filter, SlidersHorizontal, LayoutList, MonitorPlay, LayoutGrid, List } from 'lucide-react';
 
@@ -14,6 +14,7 @@ interface SportsViewProps {
   setFilter: (f: 'all' | 'live' | 'upcoming') => void;
   onOddClick: (selection: BetSelection) => void;
   selectedOdds: string[];
+  isLoading?: boolean;
 }
 
 // --- CONSTANTS ---
@@ -57,7 +58,8 @@ const SportsView: React.FC<SportsViewProps> = ({
   filter, 
   setFilter, 
   onOddClick, 
-  selectedOdds 
+  selectedOdds,
+  isLoading = false
 }) => {
   
   const [timeFilter, setTimeFilter] = useState<string>('all');
@@ -233,7 +235,13 @@ const SportsView: React.FC<SportsViewProps> = ({
 
       {/* 4. MATCH LISTING (Grouped) */}
       <div className="pb-20 min-h-[50vh] bg-slate-100 dark:bg-black">
-         {leagueKeys.length > 0 ? (
+         {isLoading ? (
+             <div className="p-4 space-y-4">
+                 {[...Array(6)].map((_, i) => (
+                     <MatchCardSkeleton key={i} variant={viewMode} />
+                 ))}
+             </div>
+         ) : leagueKeys.length > 0 ? (
             <div className="space-y-2 animate-in fade-in duration-300">
                {leagueKeys.map(league => (
                   <div key={league} className="bg-white dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800">

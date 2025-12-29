@@ -520,4 +520,53 @@ const MatchCard: React.FC<MatchCardProps> = memo(({ match, onOddClick, selectedO
   );
 });
 
+export const MatchCardSkeleton: React.FC<{ variant?: 'card' | 'compact' }> = ({ variant = 'card' }) => {
+    if (variant === 'compact') {
+        return (
+            <div className="bg-white dark:bg-slate-950/30 border-b border-slate-200 dark:border-slate-800 py-2 px-3 gap-3 flex items-center animate-pulse">
+                <div className="w-12 h-8 rounded bg-slate-200 dark:bg-slate-800"></div>
+                <div className="flex-1 flex flex-col justify-center gap-1">
+                    <div className="w-24 h-3 rounded bg-slate-200 dark:bg-slate-800"></div>
+                    <div className="w-20 h-2 rounded bg-slate-200 dark:bg-slate-800"></div>
+                </div>
+                <div className="flex gap-1 h-8">
+                     <div className="w-12 h-full rounded bg-slate-200 dark:bg-slate-800"></div>
+                     <div className="w-12 h-full rounded bg-slate-200 dark:bg-slate-800"></div>
+                     <div className="w-12 h-full rounded bg-slate-200 dark:bg-slate-800"></div>
+                </div>
+            </div>
+        );
+    }
+    
+    return (
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-4 animate-pulse flex flex-col sm:flex-row gap-4 mb-2">
+            {/* Left Info */}
+            <div className="flex-1 flex items-center justify-between sm:border-r border-slate-100 dark:border-slate-800/50 gap-4 pr-4">
+                <div className="flex flex-col items-center justify-center w-14 shrink-0 gap-1">
+                    <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-800"></div>
+                    <div className="w-10 h-2 rounded bg-slate-200 dark:bg-slate-800"></div>
+                </div>
+                <div className="flex-1 space-y-3">
+                     <div className="flex items-center gap-2">
+                         <div className="w-6 h-6 rounded-full bg-slate-200 dark:bg-slate-800"></div>
+                         <div className="w-24 h-4 rounded bg-slate-200 dark:bg-slate-800"></div>
+                     </div>
+                     <div className="flex items-center gap-2">
+                         <div className="w-6 h-6 rounded-full bg-slate-200 dark:bg-slate-800"></div>
+                         <div className="w-24 h-4 rounded bg-slate-200 dark:bg-slate-800"></div>
+                     </div>
+                </div>
+            </div>
+             {/* Right Odds */}
+             <div className="sm:w-64 shrink-0">
+                 <div className="grid grid-cols-3 gap-2 w-full">
+                     <div className="h-10 rounded-lg bg-slate-200 dark:bg-slate-800"></div>
+                     <div className="h-10 rounded-lg bg-slate-200 dark:bg-slate-800"></div>
+                     <div className="h-10 rounded-lg bg-slate-200 dark:bg-slate-800"></div>
+                 </div>
+             </div>
+        </div>
+    );
+}
+
 export default MatchCard;

@@ -1,10 +1,10 @@
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Match, SportCategory, BetSelection } from '../types';
 import { SPORTS } from '../constants';
 import MatchCard from './MatchCard';
 import AdBanner from './AdBanner';
-import { Trophy, Flame, Calendar, ChevronRight, TrendingUp } from 'lucide-react';
+import { Trophy, Flame, Calendar, ChevronRight, TrendingUp, Clock, Filter, SlidersHorizontal, LayoutList, MonitorPlay } from 'lucide-react';
 
 interface SportsViewProps {
   matches: Match[];
@@ -16,13 +16,39 @@ interface SportsViewProps {
   selectedOdds: string[];
 }
 
+// --- CONSTANTS ---
+const TIME_FILTERS = [
+  { id: 'all', label: 'All' },
+  { id: '1h', label: '1 Hr' },
+  { id: '3h', label: '3 Hrs' },
+  { id: 'today', label: 'Today' },
+  { id: 'tmrw', label: 'Tomorrow' },
+];
+
+const MARKET_Types = [
+  { id: 'main', label: 'Main (1x2)' },
+  { id: 'secondary', label: 'Goals / Hdp' },
+];
+
 const TOP_LEAGUES = [
   { name: 'Premier League', icon: '🏴󠁧󠁢󠁥󠁮󠁧󠁿' },
   { name: 'NBA', icon: '🏀' },
   { name: 'Champions League', icon: '🏆' },
-  { name: 'NFL', icon: '🏈' },
   { name: 'La Liga', icon: '🇪🇸' },
 ];
+
+// --- HELPER COMPONENT: LEAGUE HEADER ---
+const LeagueHeader = ({ league, count, sportIcon }: { league: string, count: number, sportIcon: string }) => (
+   <div className="flex items-center justify-between px-4 py-2 bg-slate-50 dark:bg-slate-900/50 border-y border-slate-200 dark:border-slate-800 sticky top-[104px] z-10 backdrop-blur-md">
+      <div className="flex items-center gap-2">
+         <span className="text-lg">{sportIcon}</span>
+         <h3 className="text-xs font-black text-slate-700 dark:text-slate-200 uppercase tracking-wider">{league}</h3>
+      </div>
+      <span className="text-[10px] font-bold text-slate-400 bg-slate-200 dark:bg-slate-800 px-1.5 py-0.5 rounded">
+         {count}
+      </span>
+   </div>
+);
 
 const SportsView: React.FC<SportsViewProps> = ({ 
   matches, 
@@ -34,145 +60,183 @@ const SportsView: React.FC<SportsViewProps> = ({
   selectedOdds 
 }) => {
   
-  // Local state for sub-league filter if needed in future
-  const [activeLeague, setActiveLeague] = useState<string | null>(null);
+  const [timeFilter, setTimeFilter] = useState<string>('all');
+  const [globalMarket, setGlobalMarket] = useState<'main' | 'secondary'>('main');
 
-  const filteredMatches = matches.filter(m => {
-     // Sport Category Filter
-     if (activeCategory && m.sport !== activeCategory) return false;
+  // --- FILTERING LOGIC ---
+  const filteredMatches = useMemo(() => {
+     return matches.filter(m => {
+        // 1. Sport Category
+        if (activeCategory && m.sport !== activeCategory) return false;
 
-     // Main Filter
-     if (filter === 'live' && !m.isLive) return false;
-     if (filter === 'upcoming' && m.isLive) return false;
-     
-     // League Filter
-     if (activeLeague && m.league !== activeLeague) return false;
+        // 2. Main Status Filter
+        if (filter === 'live' && !m.isLive) return false;
+        if (filter === 'upcoming' && m.isLive) return false;
 
-     return true;
-  });
+        // 3. Time Filter
+        if (timeFilter !== 'all' && !m.isLive) {
+           const now = new Date();
+           const matchTime = new Date(m.startTime);
+           const diffHrs = (matchTime.getTime() - now.getTime()) / (1000 * 60 * 60);
+           
+           if (timeFilter === '1h' && diffHrs > 1) return false;
+           if (timeFilter === '3h' && diffHrs > 3) return false;
+           if (timeFilter === 'today' && matchTime.getDate() !== now.getDate()) return false;
+           if (timeFilter === 'tmrw') {
+              const tmrw = new Date(now);
+              tmrw.setDate(tmrw.getDate() + 1);
+              if (matchTime.getDate() !== tmrw.getDate()) return false;
+           }
+        }
+        return true;
+     });
+  }, [matches, activeCategory, filter, timeFilter]);
 
-  const liveCount = matches.filter(m => m.sport === activeCategory && m.isLive).length;
+  // --- GROUP BY LEAGUE ---
+  const matchesByLeague = useMemo(() => {
+     const groups: Record<string, Match[]> = {};
+     filteredMatches.forEach(match => {
+        if (!groups[match.league]) groups[match.league] = [];
+        groups[match.league].push(match);
+     });
+     return groups;
+  }, [filteredMatches]);
+
+  const leagueKeys = Object.keys(matchesByLeague).sort();
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-0">
       
-      {/* 1. HERO BANNER (Only on 'all' view) */}
+      {/* 1. HERO & PROMOS (Only on 'All' View) */}
       {filter === 'all' && (
-        <div className="px-4 sm:px-0 animate-in fade-in slide-in-from-top-4 duration-500">
+        <div className="px-4 sm:px-0 pt-2 pb-6 animate-in fade-in slide-in-from-top-4 duration-500">
            <AdBanner />
         </div>
       )}
 
-      {/* 2. SPORT CATEGORY NAVIGATION */}
-      <div className="sticky top-16 z-20 bg-slate-100/95 dark:bg-slate-950/95 backdrop-blur-sm py-2 border-b border-slate-200 dark:border-slate-800">
-         <div className="flex gap-2 overflow-x-auto px-4 sm:px-0 no-scrollbar items-center">
+      {/* 2. STICKY NAV RAIL (Sports + View Toggles) */}
+      <div className="sticky top-16 z-30 bg-white/95 dark:bg-slate-950/95 backdrop-blur-md shadow-sm border-b border-slate-200 dark:border-slate-800 pb-1">
+         
+         {/* Top Row: Sports Icons */}
+         <div className="flex gap-1 overflow-x-auto px-4 py-2 no-scrollbar items-center">
             {SPORTS.map(sport => {
-               const sportLiveCount = matches.filter(m => m.sport === sport.id && m.isLive).length;
+               const liveCount = matches.filter(m => m.sport === sport.id && m.isLive).length;
+               const isActive = activeCategory === sport.id;
                return (
                   <button
                      key={sport.id}
                      onClick={() => setActiveCategory(sport.id)}
                      className={`
-                        relative flex items-center gap-2 px-4 py-2.5 rounded-full transition-all whitespace-nowrap border
-                        ${activeCategory === sport.id 
-                           ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 border-slate-900 dark:border-white shadow-md' 
-                           : 'bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-600'}
+                        relative flex flex-col items-center justify-center min-w-[64px] py-2 rounded-xl transition-all border
+                        ${isActive 
+                           ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 border-slate-900 dark:border-white shadow-md scale-105' 
+                           : 'bg-transparent text-slate-500 dark:text-slate-400 border-transparent hover:bg-slate-100 dark:hover:bg-slate-800'}
                      `}
                   >
-                     <span className="text-base">{sport.icon}</span>
-                     <span className="text-xs font-bold uppercase tracking-wider">{sport.name}</span>
-                     {sportLiveCount > 0 && (
-                        <span className={`ml-1 text-[10px] font-black px-1.5 py-0.5 rounded-full ${activeCategory === sport.id ? 'bg-red-500 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'}`}>
-                           {sportLiveCount}
-                        </span>
+                     <span className="text-xl mb-1">{sport.icon}</span>
+                     <span className="text-[9px] font-black uppercase tracking-wider">{sport.name}</span>
+                     {liveCount > 0 && (
+                        <div className="absolute top-1 right-1 w-2 h-2 rounded-full bg-red-500 ring-2 ring-white dark:ring-slate-900"></div>
                      )}
                   </button>
                );
             })}
          </div>
+
+         {/* Bottom Row: View Filters & Time */}
+         <div className="flex items-center justify-between px-4 py-2 gap-4">
+             {/* Status Toggles (Pill) */}
+             <div className="flex bg-slate-100 dark:bg-slate-900 p-1 rounded-lg border border-slate-200 dark:border-slate-800 shrink-0">
+                <button 
+                   onClick={() => setFilter('all')}
+                   className={`px-3 py-1.5 rounded-md text-[10px] font-bold transition-all ${filter === 'all' ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500'}`}
+                >
+                   All
+                </button>
+                <button 
+                   onClick={() => setFilter('live')}
+                   className={`px-3 py-1.5 rounded-md text-[10px] font-bold transition-all flex items-center gap-1.5 ${filter === 'live' ? 'bg-white dark:bg-slate-700 text-red-500 shadow-sm' : 'text-slate-500'}`}
+                >
+                   <Flame size={10} className={filter === 'live' ? 'fill-red-500' : ''} /> Live
+                </button>
+             </div>
+
+             {/* Time Filters (Scrollable) */}
+             <div className="flex-1 flex gap-2 overflow-x-auto no-scrollbar justify-end">
+                {TIME_FILTERS.map(tf => (
+                   <button
+                      key={tf.id}
+                      onClick={() => setTimeFilter(tf.id)}
+                      className={`
+                         whitespace-nowrap px-3 py-1.5 rounded-lg text-[10px] font-bold border transition-colors
+                         ${timeFilter === tf.id 
+                            ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800' 
+                            : 'bg-transparent text-slate-500 border-transparent hover:bg-slate-50 dark:hover:bg-slate-800'}
+                      `}
+                   >
+                      {tf.label}
+                   </button>
+                ))}
+             </div>
+         </div>
       </div>
 
-      {/* 3. SUB-NAVIGATION (Quick Leagues) */}
-      {filter === 'all' && (
-         <div className="px-4 sm:px-0">
-            <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
-               <TrendingUp size={12} /> Popular Leagues
-            </h3>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
-               {TOP_LEAGUES.map((league, idx) => (
-                  <button 
-                     key={idx}
-                     className="flex items-center gap-2 p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl hover:border-emerald-500 dark:hover:border-emerald-500 transition-colors group text-left"
-                  >
-                     <span className="text-lg group-hover:scale-110 transition-transform">{league.icon}</span>
-                     <span className="text-xs font-bold text-slate-700 dark:text-slate-300 group-hover:text-emerald-600 dark:group-hover:text-emerald-400">{league.name}</span>
-                  </button>
-               ))}
-            </div>
+      {/* 3. MARKET CONTROL RAIL (The "Pro" Switch) */}
+      <div className="px-4 py-3 bg-slate-50 dark:bg-slate-950 flex items-center justify-between border-b border-slate-200 dark:border-slate-800">
+         <div className="flex items-center gap-2 text-slate-500">
+            <SlidersHorizontal size={14} />
+            <span className="text-[10px] font-black uppercase tracking-widest">Market Display</span>
          </div>
-      )}
-
-      {/* 4. VIEW FILTERS (Live / Upcoming) */}
-      <div className="px-4 sm:px-0 flex items-center justify-between">
-         <div className="flex bg-white dark:bg-slate-900 p-1 rounded-xl border border-slate-200 dark:border-slate-800">
-            <button 
-               onClick={() => setFilter('all')}
-               className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${filter === 'all' ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
-            >
-               Lobby
-            </button>
-            <button 
-               onClick={() => setFilter('live')}
-               className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${filter === 'live' ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
-            >
-               <span className={`w-1.5 h-1.5 rounded-full bg-red-500 ${filter === 'live' ? 'animate-pulse' : ''}`}></span> Live
-            </button>
-            <button 
-               onClick={() => setFilter('upcoming')}
-               className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${filter === 'upcoming' ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
-            >
-               Upcoming
-            </button>
+         <div className="flex gap-1">
+             {MARKET_Types.map(mt => (
+                <button 
+                   key={mt.id}
+                   onClick={() => setGlobalMarket(mt.id as any)}
+                   className={`
+                      px-3 py-1 rounded-md text-[10px] font-bold transition-all border
+                      ${globalMarket === mt.id 
+                         ? 'bg-slate-900 dark:bg-slate-200 text-white dark:text-slate-900 border-slate-900 dark:border-slate-200' 
+                         : 'bg-white dark:bg-slate-900 text-slate-500 border-slate-200 dark:border-slate-700'}
+                   `}
+                >
+                   {mt.label}
+                </button>
+             ))}
          </div>
-         
-         {/* Sort / Calendar (Visual Only) */}
-         <button className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
-            <Calendar size={18} />
-         </button>
       </div>
 
-      {/* 5. MATCH LIST */}
-      <div className="px-4 sm:px-0 pb-10 min-h-[50vh]">
-         {filteredMatches.length > 0 ? (
-            <div className="space-y-3 animate-in slide-in-from-bottom-4 duration-500">
-               {/* Section Title */}
-               <div className="flex items-center gap-2 mb-2">
-                  {filter === 'live' ? (
-                     <Flame size={16} className="text-red-500" /> 
-                  ) : (
-                     <Trophy size={16} className="text-amber-500" />
-                  )}
-                  <h2 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">
-                     {filter === 'live' ? 'In-Play Events' : filter === 'upcoming' ? 'Scheduled' : 'Highlights'}
-                  </h2>
-               </div>
-
-               {filteredMatches.map(match => (
-                  <MatchCard 
-                     key={match.id} 
-                     match={match} 
-                     onOddClick={onOddClick}
-                     selectedOdds={selectedOdds}
-                  />
+      {/* 4. MATCH LISTING (Grouped) */}
+      <div className="pb-20 min-h-[50vh] bg-slate-100 dark:bg-black">
+         {leagueKeys.length > 0 ? (
+            <div className="space-y-2 animate-in fade-in duration-300">
+               {leagueKeys.map(league => (
+                  <div key={league} className="bg-white dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800">
+                     <LeagueHeader 
+                        league={league} 
+                        count={matchesByLeague[league].length}
+                        sportIcon={SPORTS.find(s => s.id === activeCategory)?.icon || '🏆'} 
+                     />
+                     <div className="p-2 space-y-2">
+                        {matchesByLeague[league].map(match => (
+                           <MatchCard 
+                              key={match.id} 
+                              match={match} 
+                              onOddClick={onOddClick}
+                              selectedOdds={selectedOdds}
+                              displayMarket={globalMarket}
+                           />
+                        ))}
+                     </div>
+                  </div>
                ))}
             </div>
          ) : (
-            <div className="flex flex-col items-center justify-center py-20 text-slate-500 bg-white dark:bg-slate-900/50 rounded-2xl border border-slate-200 dark:border-slate-800 border-dashed">
-               <div className="bg-slate-100 dark:bg-slate-800 p-4 rounded-full mb-4">
-                  <Trophy size={32} className="opacity-30" />
+            <div className="flex flex-col items-center justify-center py-24 text-slate-400">
+               <div className="bg-slate-200 dark:bg-slate-900 p-6 rounded-full mb-4">
+                  <LayoutList size={40} className="opacity-40" />
                </div>
-               <p className="font-bold text-lg">No matches found</p>
-               <p className="text-xs mt-1 opacity-70">Try changing the category or filter.</p>
+               <p className="font-bold text-sm uppercase tracking-widest">No Events Found</p>
+               <p className="text-xs mt-2">Adjust your time filters or category.</p>
             </div>
          )}
       </div>

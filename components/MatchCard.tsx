@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, memo } from 'react';
-import { Match, Odd, BetSelection, StatItem } from '../types';
-import { PlayCircle, Clock, BrainCircuit, Loader2, Trophy, Zap, BarChart3, ChevronDown, ChevronUp, Tv, Maximize2, Volume2, VolumeX, Pause, Play, X, TrendingUp, Settings, Signal, Sparkles } from 'lucide-react';
+import { Match, Odd, BetSelection } from '../types';
+import { Tv, BarChart3, ChevronDown, ChevronUp, Zap, Clock, PlayCircle, TrendingUp } from 'lucide-react';
 import { getMatchPrediction } from '../services/geminiService';
 import { Typewriter } from './UiEffects';
 
@@ -10,18 +10,16 @@ interface OddButtonProps {
   match: Match;
   isSelected: boolean;
   onClick: (selection: BetSelection) => void;
+  expanded?: boolean;
 }
 
-const OddButton: React.FC<OddButtonProps> = ({ odd, match, isSelected, onClick }) => {
+const OddButton: React.FC<OddButtonProps> = ({ odd, match, isSelected, onClick, expanded = false }) => {
   const [direction, setDirection] = useState<'up' | 'down' | null>(null);
 
   useEffect(() => {
     if (odd.prevValue) {
-      if (odd.value > odd.prevValue) {
-        setDirection('up');
-      } else if (odd.value < odd.prevValue) {
-        setDirection('down');
-      }
+      if (odd.value > odd.prevValue) setDirection('up');
+      else if (odd.value < odd.prevValue) setDirection('down');
       const timer = setTimeout(() => setDirection(null), 2000);
       return () => clearTimeout(timer);
     }
@@ -29,59 +27,43 @@ const OddButton: React.FC<OddButtonProps> = ({ odd, match, isSelected, onClick }
 
   return (
     <button
-      onClick={() => onClick({
+      onClick={(e) => { e.stopPropagation(); onClick({
         matchId: match.id,
         selectionId: odd.id,
         matchTitle: `${match.homeTeam.name} vs ${match.awayTeam.name}`,
         selectionLabel: odd.label === '1' ? match.homeTeam.name : odd.label === '2' ? match.awayTeam.name : odd.label,
         oddValue: odd.value,
         marketType: odd.marketType
-      })}
+      })}}
       className={`
-        relative flex flex-col items-center justify-center py-4 px-2 rounded-xl transition-all duration-300 font-medium text-sm overflow-hidden group/odd border
+        relative flex flex-col items-center justify-center rounded-lg transition-all duration-200 font-medium overflow-hidden border group
+        ${expanded ? 'py-3' : 'py-2.5'}
         ${isSelected 
-          ? 'bg-emerald-600 text-white shadow-[0_0_20px_rgba(16,185,129,0.3)] border-emerald-400' 
-          : odd.isBoosted
-            ? 'bg-gradient-to-br from-amber-100 to-amber-50 dark:from-amber-900/40 dark:to-slate-900 text-amber-900 dark:text-amber-100 border-amber-500/30 hover:border-amber-400/50'
-            : 'bg-white dark:bg-slate-800/50 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 border-slate-200 dark:border-white/5 hover:border-slate-300 dark:hover:border-white/10'}
+          ? 'bg-emerald-600 text-white border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.4)]' 
+          : 'bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700/50 hover:border-slate-400 dark:hover:border-slate-500'}
       `}
     >
-      {/* Update Indicator Background */}
-      {direction === 'up' && <div className="absolute inset-0 bg-emerald-500/10 animate-pulse pointer-events-none"></div>}
-      {direction === 'down' && <div className="absolute inset-0 bg-red-500/10 animate-pulse pointer-events-none"></div>}
-
-      {/* Boost Badge/Icon */}
-      {odd.isBoosted && !isSelected && (
-        <div className="absolute top-1.5 right-1.5">
-           <Zap size={10} className="text-amber-500 fill-amber-500 animate-pulse" />
-        </div>
+      {/* Odds Change Indicator */}
+      {direction && (
+        <div className={`absolute inset-0 opacity-20 pointer-events-none ${direction === 'up' ? 'bg-emerald-500' : 'bg-red-500'} transition-opacity`} />
       )}
-
-      <span className={`text-[10px] font-bold uppercase tracking-wider mb-1 z-10 ${isSelected ? 'text-emerald-100' : odd.isBoosted ? 'text-amber-600 dark:text-amber-200/70' : 'text-slate-500'}`}>
-        {odd.label === '1' ? 'HOME' : odd.label === '2' ? 'AWAY' : odd.label === 'X' ? 'DRAW' : odd.label}
-      </span>
       
-      <div className="flex items-center gap-1.5 z-10">
-        {/* Original Value Strikethrough for Boosts */}
-        {odd.isBoosted && odd.originalValue && (
-            <span className={`text-[10px] line-through decoration-1 opacity-60 ${isSelected ? 'text-emerald-100' : 'text-slate-400'}`}>
-                {odd.originalValue.toFixed(2)}
-            </span>
-        )}
+      {/* Label (Hidden in compact view if standard 1x2 to save space, shown otherwise) */}
+      <span className={`text-[9px] font-bold uppercase tracking-wider mb-0.5 ${isSelected ? 'text-emerald-100' : 'text-slate-500 dark:text-slate-500'}`}>
+        {odd.label === '1' ? '1' : odd.label === '2' ? '2' : odd.label === 'X' ? 'X' : odd.label}
+      </span>
 
-        <span className={`text-lg font-black tracking-tight transition-colors duration-300 ${
+      <div className="flex items-center gap-1 z-10 relative">
+        <span className={`font-black tracking-tight ${expanded ? 'text-base' : 'text-sm'} ${
           isSelected ? 'text-white' : 
-          odd.isBoosted ? 'text-amber-600 dark:text-amber-400' :
-          direction === 'up' ? 'text-emerald-500 dark:text-emerald-400' : 
+          direction === 'up' ? 'text-emerald-600 dark:text-emerald-400' : 
           direction === 'down' ? 'text-red-500 dark:text-red-400' : 
           'text-slate-900 dark:text-white'
         }`}>
           {odd.value.toFixed(2)}
         </span>
-        
-        {/* Direction arrows */}
-        {!odd.isBoosted && direction === 'up' && <TrendingUp size={12} className="text-emerald-500 dark:text-emerald-400" />}
-        {!odd.isBoosted && direction === 'down' && <TrendingUp size={12} className="text-red-500 dark:text-red-400 rotate-180" />}
+        {direction === 'up' && <TrendingUp size={10} className="text-emerald-500" />}
+        {direction === 'down' && <TrendingUp size={10} className="text-red-500 rotate-180" />}
       </div>
     </button>
   );
@@ -91,208 +73,86 @@ interface MatchCardProps {
   match: Match;
   onOddClick: (selection: BetSelection) => void;
   selectedOdds: string[];
+  displayMarket: 'main' | 'secondary'; // NEW: Controls which odds show on the card face
 }
 
-const MatchCard: React.FC<MatchCardProps> = memo(({ match, onOddClick, selectedOdds }) => {
-  const [isOpen, setIsOpen] = useState(false); // Default: Odds Hidden
-  const [aiLoading, setAiLoading] = useState(false);
+const MatchCard: React.FC<MatchCardProps> = memo(({ match, onOddClick, selectedOdds, displayMarket }) => {
+  const [isOpen, setIsOpen] = useState(false);
   const [aiTip, setAiTip] = useState<string | null>(null);
-  const [showStats, setShowStats] = useState(false);
-  const [showStream, setShowStream] = useState(false);
   
-  // Stream Quality State
-  const [quality, setQuality] = useState<'Auto' | '1080p' | '720p' | '360p'>('Auto');
-  const [isBuffering, setIsBuffering] = useState(false);
-  
-  // Determine if any odd in this match is selected, if so, keep card open
-  const hasSelection = match.odds.main.some(o => selectedOdds.includes(o.id)) || 
-                       match.odds.secondary.some(o => selectedOdds.includes(o.id));
-  
-  useEffect(() => {
-    if (hasSelection) setIsOpen(true);
-  }, [hasSelection]);
-
-  const handleAiClick = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (aiTip) {
-      setAiTip(null); // Toggle off
-      return;
-    }
-    setAiLoading(true);
-    // Simulate thinking delay for effect + API call
-    const minDelay = new Promise(resolve => setTimeout(resolve, 1500));
-    const tipPromise = getMatchPrediction(match);
-    
-    const [_, tip] = await Promise.all([minDelay, tipPromise]);
-    
-    setAiTip(tip);
-    setAiLoading(false);
-  };
-  
-  const handleQualityChange = (newQuality: typeof quality) => {
-    if (newQuality === quality) return;
-    setIsBuffering(true);
-    setQuality(newQuality);
-    
-    // Simulate stream switch buffering
-    setTimeout(() => {
-        setIsBuffering(false);
-    }, 1500);
-  };
+  // Decide which odds to show on the main card face
+  const visibleOdds = displayMarket === 'main' ? match.odds.main : (match.odds.secondary.length > 0 ? match.odds.secondary : match.odds.main);
 
   const getStatusText = () => {
     if (!match.isLive) return match.startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     if (match.sport === 'Soccer') return `${match.minute}'`;
-    if (match.sport === 'Basketball') return `${match.period} ${match.minute}'`;
+    if (match.sport === 'Basketball') return `${match.period}`;
     return 'LIVE';
   };
 
-  // Helper to construct URL safely
-  const getStreamUrl = (url: string) => {
-     // If it's a YouTube Embed, we want to ensure we append params correctly
-     const separator = url.includes('?') ? '&' : '?';
-     return `${url}${separator}quality=${quality}`; 
+  const handleAiClick = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (aiTip) { setAiTip(null); return; }
+    const tip = await getMatchPrediction(match);
+    setAiTip(tip);
   };
 
   return (
-    <div className="bg-white dark:bg-slate-900/80 backdrop-blur-sm rounded-2xl mb-4 border border-slate-200 dark:border-white/5 shadow-lg dark:shadow-none overflow-hidden transition-all duration-300 hover:border-emerald-500/20">
+    <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md transition-shadow duration-300 overflow-hidden group">
       
-      {/* --- Main Card Content (Always Visible) --- */}
+      {/* --- Main Row (Click to Expand) --- */}
       <div 
         onClick={() => setIsOpen(!isOpen)}
-        className="p-5 cursor-pointer relative"
+        className="flex flex-col sm:flex-row items-stretch cursor-pointer relative"
       >
-        {/* Live Indicator / Time */}
-        <div className="flex justify-between items-start mb-6">
-           <div className="flex items-center gap-2">
-              {match.isLive ? (
-                 <span className="flex items-center gap-1.5 bg-red-500 text-white text-[10px] font-black px-2 py-0.5 rounded-sm animate-pulse">
-                    LIVE
-                 </span>
-              ) : (
-                 <span className="bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-[10px] font-bold px-2 py-0.5 rounded-sm">
-                    {match.startTime.toLocaleDateString([], {weekday: 'short'})}
-                 </span>
-              )}
-              <span className={`text-xs font-bold ${match.isLive ? 'text-red-500 dark:text-red-400' : 'text-slate-500 dark:text-slate-400'}`}>
-                 {getStatusText()}
-              </span>
-              <span className="text-slate-400 dark:text-slate-600 text-[10px]">•</span>
-              <span className="text-xs text-slate-500 font-medium truncate max-w-[120px]">
-                 {match.league}
-              </span>
-           </div>
-
-           <div className="flex items-center gap-2">
-              {match.hasStream && (
-                 <Tv size={14} className="text-slate-400 dark:text-slate-600" />
-              )}
-              
-              {/* --- ENHANCED GEMINI BUTTON --- */}
-              <button 
-                 onClick={handleAiClick}
-                 className={`
-                    relative flex items-center justify-center w-8 h-8 rounded-full transition-all border
-                    ${aiTip 
-                        ? 'bg-purple-600 border-purple-400 text-white shadow-[0_0_15px_rgba(168,85,247,0.5)]' 
-                        : aiLoading
-                            ? 'bg-slate-900 border-purple-500/50'
-                            : 'bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700 hover:border-purple-500/50 hover:text-purple-500 dark:hover:text-purple-400'}
-                 `}
-              >
-                 {aiLoading ? (
-                    <div className="flex items-center justify-center gap-[2px]">
-                        <span className="w-1 h-3 bg-purple-500 rounded-full animate-music"></span>
-                        <span className="w-1 h-2 bg-purple-500 rounded-full animate-music delay-75"></span>
-                        <span className="w-1 h-3 bg-purple-500 rounded-full animate-music delay-150"></span>
-                    </div>
-                 ) : (
-                    <div className={!aiTip ? "animate-pulse opacity-75" : ""}>
-                       <BrainCircuit size={16} />
-                    </div>
-                 )}
-              </button>
-           </div>
-        </div>
-
-        {/* Teams & Score */}
-        <div className="flex items-center justify-between">
-           {/* Home Team */}
-           <div className="flex items-center gap-3 flex-1">
-              <img src={match.homeTeam.logo} alt={match.homeTeam.name} className="w-10 h-10 rounded-full bg-slate-50 dark:bg-slate-800 p-1 object-contain border border-slate-100 dark:border-slate-700" />
-              <div>
-                 <h3 className="text-sm font-bold text-slate-900 dark:text-white leading-tight">{match.homeTeam.name}</h3>
-                 {!match.isLive && <p className="text-[10px] text-slate-500 font-medium">Home</p>}
-              </div>
-           </div>
-
-           {/* Score / VS */}
-           <div className="px-4 flex flex-col items-center">
-              {match.isLive && match.scores ? (
-                 <div className="bg-slate-100 dark:bg-slate-950 px-3 py-1 rounded-lg border border-slate-200 dark:border-slate-800 min-w-[60px] text-center">
-                    <span className="text-xl font-black text-emerald-600 dark:text-emerald-400 tracking-wider">
-                       {match.scores.home}-{match.scores.away}
-                    </span>
-                 </div>
-              ) : (
-                 <span className="text-slate-400 dark:text-slate-600 font-black text-xs bg-slate-100 dark:bg-slate-800/50 w-8 h-8 rounded-full flex items-center justify-center">VS</span>
-              )}
-           </div>
-
-           {/* Away Team */}
-           <div className="flex items-center gap-3 flex-1 justify-end text-right">
-              <div>
-                 <h3 className="text-sm font-bold text-slate-900 dark:text-white leading-tight">{match.awayTeam.name}</h3>
-                 {!match.isLive && <p className="text-[10px] text-slate-500 font-medium">Away</p>}
-              </div>
-              <img src={match.awayTeam.logo} alt={match.awayTeam.name} className="w-10 h-10 rounded-full bg-slate-50 dark:bg-slate-800 p-1 object-contain border border-slate-100 dark:border-slate-700" />
-           </div>
-        </div>
-
-        {/* AI Insight Dropdown */}
-        {aiTip && (
-           <div className="mt-4 bg-slate-50 dark:bg-gradient-to-r dark:from-purple-950/20 dark:to-slate-900/50 border border-purple-500/30 p-4 rounded-xl text-sm text-purple-900 dark:text-purple-100 shadow-[0_0_15px_rgba(168,85,247,0.05)] animate-in fade-in slide-in-from-top-2 relative overflow-hidden">
-              <div className="absolute top-0 left-0 w-1 h-full bg-purple-500"></div>
-              <div className="flex gap-3">
-                 <div className="bg-purple-500/20 p-1.5 rounded-lg h-fit">
-                    <Sparkles className="text-purple-400" size={16} />
-                 </div>
-                 <div className="text-xs leading-relaxed font-medium">
-                    <Typewriter text={aiTip} />
-                 </div>
-              </div>
-           </div>
-        )}
-      </div>
-
-      {/* --- Action Bar (Toggle) --- */}
-      <div 
-        onClick={() => setIsOpen(!isOpen)}
-        className={`px-5 py-2 flex items-center justify-center gap-2 cursor-pointer transition-colors border-t border-slate-100 dark:border-white/5
-          ${isOpen ? 'bg-slate-50 dark:bg-slate-900' : 'bg-slate-50/50 dark:bg-slate-800/30 hover:bg-slate-100 dark:hover:bg-slate-800/50'}
-        `}
-      >
-        <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500 group-hover:text-emerald-500 dark:group-hover:text-emerald-400">
-           {isOpen ? 'Hide Markets' : 'View Odds & Markets'}
-        </span>
-        {isOpen ? <ChevronUp size={12} className="text-slate-500" /> : <ChevronDown size={12} className="text-slate-500" />}
-      </div>
-
-      {/* --- Expanded Content (Odds & Stats) --- */}
-      {isOpen && (
-        <div className="p-4 bg-slate-50 dark:bg-black/20 animate-in slide-in-from-top-2 duration-300">
+        
+        {/* Left: Match Info */}
+        <div className="flex-1 p-4 flex items-center justify-between sm:border-r border-slate-100 dark:border-slate-800/50 gap-4">
            
-           {/* Market Tabs (Visual Only for demo) */}
-           <div className="flex gap-4 mb-4 overflow-x-auto no-scrollbar pb-1 border-b border-slate-200 dark:border-white/5">
-              <button className="text-emerald-600 dark:text-emerald-400 font-bold text-xs pb-2 border-b-2 border-emerald-500">Main</button>
-              <button className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 font-medium text-xs pb-2">Goals</button>
-              <button className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 font-medium text-xs pb-2">Halves</button>
-              <button className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 font-medium text-xs pb-2">Specials</button>
+           {/* Time / Status Column */}
+           <div className="flex flex-col items-center justify-center w-14 shrink-0 gap-1">
+              {match.isLive ? (
+                 <>
+                   <span className="text-xs font-black text-red-500 animate-pulse flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-red-500"></span> {match.minute}'
+                   </span>
+                   {match.hasStream && <Tv size={14} className="text-slate-400" />}
+                 </>
+              ) : (
+                 <>
+                   <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                      {match.startTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                   </span>
+                   <span className="text-[10px] text-slate-400 font-medium">
+                      {match.startTime.toLocaleDateString([], {day: 'numeric', month: 'short'})}
+                   </span>
+                 </>
+              )}
            </div>
 
-           {/* Odds Grid - Main Market */}
-           <div className="grid grid-cols-3 gap-3 mb-3">
-              {match.odds.main.map(odd => (
+           {/* Teams Column */}
+           <div className="flex-1 space-y-2">
+              <div className="flex items-center justify-between">
+                 <div className="flex items-center gap-2">
+                    <img src={match.homeTeam.logo} alt="" className="w-5 h-5 object-contain" />
+                    <span className="text-sm font-bold text-slate-900 dark:text-white truncate">{match.homeTeam.name}</span>
+                 </div>
+                 {match.isLive && <span className="text-emerald-500 font-bold font-mono">{match.scores?.home}</span>}
+              </div>
+              <div className="flex items-center justify-between">
+                 <div className="flex items-center gap-2">
+                    <img src={match.awayTeam.logo} alt="" className="w-5 h-5 object-contain" />
+                    <span className="text-sm font-bold text-slate-900 dark:text-white truncate">{match.awayTeam.name}</span>
+                 </div>
+                 {match.isLive && <span className="text-emerald-500 font-bold font-mono">{match.scores?.away}</span>}
+              </div>
+           </div>
+        </div>
+
+        {/* Right: Odds Grid (The "Market" Face) */}
+        <div className="p-3 bg-slate-50 dark:bg-slate-950/30 sm:w-64 shrink-0 flex items-center">
+           <div className="grid grid-cols-3 gap-2 w-full">
+              {visibleOdds.slice(0, 3).map(odd => (
                  <OddButton 
                     key={odd.id} 
                     odd={odd} 
@@ -301,132 +161,94 @@ const MatchCard: React.FC<MatchCardProps> = memo(({ match, onOddClick, selectedO
                     onClick={onOddClick}
                  />
               ))}
+              {visibleOdds.length < 3 && (
+                 <div className="flex items-center justify-center text-xs text-slate-400">
+                    <Lock size={12} />
+                 </div>
+              )}
+           </div>
+        </div>
+        
+        {/* Expand Toggle Visual */}
+        <div className="absolute top-1/2 right-0 -translate-y-1/2 w-4 bg-gradient-to-l from-slate-100 dark:from-slate-800 to-transparent h-full sm:flex items-center justify-center hidden opacity-0 group-hover:opacity-100 transition-opacity">
+           <ChevronDown size={14} className="text-slate-400" />
+        </div>
+
+      </div>
+
+      {/* --- Expanded Detail View (Lazy Rendered) --- */}
+      {isOpen && (
+        <div className="bg-slate-50 dark:bg-slate-950/50 border-t border-slate-200 dark:border-slate-800 p-4 animate-in slide-in-from-top-1">
+           
+           {/* AI Insight Header */}
+           <div className="flex items-center justify-between mb-4">
+              <div className="flex gap-2">
+                 <button onClick={handleAiClick} className="flex items-center gap-2 px-3 py-1.5 bg-purple-600 text-white rounded-full text-xs font-bold shadow-lg shadow-purple-500/20 hover:bg-purple-500 transition-all">
+                    <Zap size={12} fill="currentColor" /> AI Analysis
+                 </button>
+                 <button className="flex items-center gap-2 px-3 py-1.5 bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-full text-xs font-bold hover:bg-slate-300 dark:hover:bg-slate-700 transition-all">
+                    <BarChart3 size={12} /> Stats
+                 </button>
+              </div>
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
+                 {match.odds.main.length + match.odds.secondary.length} Markets Available
+              </span>
            </div>
 
-           {/* Odds Grid - Secondary Market */}
-           {match.odds.secondary && match.odds.secondary.length > 0 && (
-             <div className="grid grid-cols-2 gap-3 mt-3">
-                {match.odds.secondary.map(odd => (
-                  <OddButton 
-                    key={odd.id} 
-                    odd={odd} 
-                    match={match}
-                    isSelected={selectedOdds.includes(odd.id)}
-                    onClick={onOddClick}
-                  />
-                ))}
-             </div>
+           {/* AI Prediction Text */}
+           {aiTip && (
+              <div className="mb-4 p-3 bg-purple-50 dark:bg-purple-900/10 border border-purple-200 dark:border-purple-500/20 rounded-lg text-xs text-purple-800 dark:text-purple-200 font-medium">
+                 <Typewriter text={aiTip} />
+              </div>
            )}
 
-           {/* Stats / Stream Controls */}
-           <div className="mt-4 pt-3 border-t border-slate-200 dark:border-white/5 flex justify-between items-center">
-              <button 
-                 onClick={() => setShowStats(!showStats)}
-                 className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white uppercase tracking-wider bg-white dark:bg-slate-800/50 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-white/5 hover:border-slate-300 dark:hover:border-white/20 transition-all shadow-sm dark:shadow-none"
-              >
-                 <BarChart3 size={12} /> {showStats ? 'Hide Stats' : 'Match Stats'}
-              </button>
+           {/* Extended Markets Grid */}
+           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+              
+              {/* Main Market */}
+              <div>
+                 <h4 className="text-[10px] font-bold text-slate-500 uppercase mb-2">Match Winner</h4>
+                 <div className="grid grid-cols-3 gap-2">
+                    {match.odds.main.map(odd => (
+                       <OddButton 
+                          key={odd.id} 
+                          odd={odd} 
+                          match={match}
+                          isSelected={selectedOdds.includes(odd.id)}
+                          onClick={onOddClick}
+                          expanded
+                       />
+                    ))}
+                 </div>
+              </div>
 
-              {match.hasStream && match.isLive && (
-                  <button 
-                     onClick={() => setShowStream(!showStream)}
-                     className="flex items-center gap-1.5 text-[10px] font-bold text-red-500 dark:text-red-400 hover:text-red-600 dark:hover:text-red-300 uppercase tracking-wider bg-red-50 dark:bg-red-900/20 px-3 py-1.5 rounded-lg border border-red-200 dark:border-red-500/20 hover:border-red-300 dark:hover:border-red-500/40 transition-all"
-                  >
-                     <Tv size={12} /> {showStream ? 'Hide Stream' : 'Watch Stream'}
-                  </button>
+              {/* Secondary Market (Goals/Handicap) */}
+              {match.odds.secondary.length > 0 && (
+                 <div>
+                    <h4 className="text-[10px] font-bold text-slate-500 uppercase mb-2">Alternative Markets</h4>
+                    <div className="grid grid-cols-2 gap-2">
+                       {match.odds.secondary.map(odd => (
+                          <OddButton 
+                             key={odd.id} 
+                             odd={odd} 
+                             match={match}
+                             isSelected={selectedOdds.includes(odd.id)}
+                             onClick={onOddClick}
+                             expanded
+                          />
+                       ))}
+                    </div>
+                 </div>
               )}
            </div>
 
-           {/* Live Stream View */}
-           {showStream && (
-             <div className="mt-3 relative w-full aspect-video bg-black rounded-lg overflow-hidden border border-slate-700 group/video shadow-2xl">
-                {match.streamUrl && !isBuffering ? (
-                   <iframe 
-                      src={getStreamUrl(match.streamUrl)}
-                      title="Live Stream"
-                      className="absolute inset-0 w-full h-full"
-                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
-                      allowFullScreen
-                   ></iframe>
-                ) : (
-                   <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900 z-10">
-                       {isBuffering ? (
-                            <>
-                                <Loader2 className="animate-spin text-emerald-500 mb-2" size={32} /> 
-                                <span className="text-white text-xs font-bold animate-pulse">Switching Quality to {quality}...</span>
-                            </>
-                       ) : (
-                            <>
-                                <div className="absolute inset-0 opacity-40">
-                                    <img 
-                                        src="https://images.unsplash.com/photo-1522778119026-d647f0565c6a?auto=format&fit=crop&w=800&q=80"
-                                        className="w-full h-full object-cover"
-                                        alt="Stream Placeholder"
-                                    />
-                                </div>
-                                <div className="z-10 flex flex-col items-center">
-                                    <Loader2 className="animate-spin text-white mb-2" size={24} /> 
-                                    <span className="text-white text-xs shadow-black drop-shadow-md">Connecting to feed...</span>
-                                </div>
-                            </>
-                       )}
-                   </div>
-                )}
-                
-                {/* Live Badge */}
-                <div className="absolute top-2 left-2 bg-red-600 text-white text-[10px] font-bold px-2 py-0.5 rounded animate-pulse z-20 shadow-lg flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 bg-white rounded-full"></span> LIVE
-                </div>
-                
-                {/* Quality Controls Overlay (Visible on Hover) */}
-                <div className="absolute top-2 right-2 z-20 opacity-0 group-hover/video:opacity-100 transition-opacity duration-300 flex flex-col items-end gap-1">
-                     <div className="bg-black/60 backdrop-blur-md p-1 rounded-lg border border-white/10 flex gap-1 shadow-lg">
-                        <div className="flex items-center px-1 text-slate-400">
-                             <Settings size={12} />
-                        </div>
-                        {['Auto', '1080p', '720p', '360p'].map((q) => (
-                            <button
-                                key={q}
-                                onClick={() => handleQualityChange(q as any)}
-                                className={`
-                                    text-[10px] px-2 py-1 rounded font-bold transition-colors
-                                    ${quality === q 
-                                        ? 'bg-emerald-600 text-white shadow-sm' 
-                                        : 'text-slate-300 hover:text-white hover:bg-white/10'}
-                                `}
-                            >
-                                {q}
-                            </button>
-                        ))}
-                     </div>
-                     <div className="text-[9px] text-white/50 font-mono pr-1 bg-black/40 rounded px-1">
-                         {quality === 'Auto' ? 'Bitrate: Adaptive' : `Bitrate: ${quality}`}
-                     </div>
-                </div>
-
-                {/* Bottom Bar Gradient for Controls visibility if needed */}
-                <div className="absolute bottom-0 inset-x-0 h-12 bg-gradient-to-t from-black/80 to-transparent pointer-events-none"></div>
-             </div>
-           )}
-
-           {/* Stats View */}
-           {showStats && match.stats && (
-              <div className="mt-4 space-y-3 bg-white dark:bg-slate-950/50 p-3 rounded-xl border border-slate-200 dark:border-white/5 shadow-sm dark:shadow-none">
-                 {match.stats.map((stat, idx) => (
-                    <div key={idx}>
-                       <div className="flex justify-between text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1">
-                          <span>{stat.home}</span>
-                          <span className="uppercase text-slate-600 dark:text-slate-600">{stat.label}</span>
-                          <span>{stat.away}</span>
-                       </div>
-                       <div className="h-1.5 w-full bg-slate-200 dark:bg-slate-800 rounded-full flex overflow-hidden">
-                          <div style={{ width: `${(stat.home / (stat.home + stat.away)) * 100}%` }} className="bg-emerald-500"></div>
-                          <div style={{ width: `${(stat.away / (stat.home + stat.away)) * 100}%` }} className="bg-red-500"></div>
-                       </div>
-                    </div>
-                 ))}
-              </div>
-           )}
+           {/* Footer: Close */}
+           <div 
+             onClick={() => setIsOpen(false)}
+             className="mt-4 flex justify-center cursor-pointer text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
+           >
+              <ChevronUp size={16} />
+           </div>
         </div>
       )}
     </div>

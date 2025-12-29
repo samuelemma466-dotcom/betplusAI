@@ -1,9 +1,0 @@
-services:
-  - type: web
-    name: betpulse-ai
-    env: static
-    buildCommand: npm install && npm run build
-    staticPublishPath: ./dist
-    envVars:
-      - key: GEMINI_API_KEY
-        sync: false

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Eye, EyeOff, Lock, Mail, ArrowRight, ShieldCheck, Fingerprint, ArrowLeft, Check, RefreshCw, AlertCircle, WifiOff, Globe } from 'lucide-react';
+import { Eye, EyeOff, Lock, Mail, ArrowRight, ShieldCheck, Fingerprint, ArrowLeft, Check, RefreshCw, AlertCircle, WifiOff, Globe, ServerCrash } from 'lucide-react';
 import { 
   createUserWithEmailAndPassword, 
   signInWithEmailAndPassword, 
@@ -48,6 +48,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated, initial
   const [error, setError] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<string | null>(null); // Track code for specific UI handling
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [currentDomain, setCurrentDomain] = useState('');
   
   // Verification State
   const [needsVerification, setNeedsVerification] = useState(false);
@@ -56,6 +57,12 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated, initial
 
   // Password Strength State
   const [strength, setStrength] = useState(0);
+
+  useEffect(() => {
+    // Robustly capture the current hostname
+    const host = window.location.hostname || window.location.host;
+    setCurrentDomain(host);
+  }, []);
 
   // Handle Initial Pending User (Refreshed Page)
   useEffect(() => {
@@ -117,6 +124,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated, initial
           case 'auth/invalid-credential':
           case 'auth/user-not-found':
           case 'auth/wrong-password':
+          case 'auth/invalid-email':
               return "Invalid email or password. Please check your credentials.";
           case 'auth/email-already-in-use':
               return "This email is already in use. Please sign in instead.";
@@ -125,15 +133,17 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated, initial
           case 'auth/too-many-requests':
               return "Too many attempts. Access temporarily blocked. Try again later.";
           case 'auth/network-request-failed':
-              return "Network error. Please check your internet connection.";
+              return "Network error. Please check your internet connection and try again.";
           case 'auth/unauthorized-domain':
-              return `Configuration Error: The domain '${window.location.hostname}' is not authorized in Firebase Console.`;
+              return `UNAUTHORIZED DOMAIN: '${window.location.hostname}'. You MUST add this to Firebase Console > Auth > Settings > Authorized Domains.`;
           case 'auth/popup-closed-by-user':
               return "Sign in cancelled.";
           case 'auth/popup-blocked':
               return "Pop-up blocked by browser. Please allow pop-ups for this site.";
           case 'auth/operation-not-allowed':
               return "Login method not enabled in Firebase Console.";
+          case 'auth/internal-error':
+              return "Internal Firebase error. Check console configuration.";
           default:
               return err.message || "An unexpected authentication error occurred.";
       }
@@ -153,12 +163,25 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated, initial
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
         const user = userCredential.user;
         
-        // Send Email Verification
-        await sendEmailVerification(user);
-        
+        // 1. Switch UI to Verification Mode immediately
         setPendingUser(user);
         setNeedsVerification(true);
-        setResendCooldown(60);
+        
+        // 2. Try to send email with specific action settings
+        try {
+            const actionCodeSettings = {
+                // IMPORTANT: In web containers, origin is safer than href to match whitelist
+                url: window.location.origin, 
+                handleCodeInApp: true,
+            };
+            await sendEmailVerification(user, actionCodeSettings);
+            setResendCooldown(60);
+        } catch (emailErr: any) {
+            console.error("Auto-send verification failed:", emailErr);
+            const mappedMsg = mapAuthError(emailErr);
+            setError(mappedMsg);
+        }
+
       } else {
         const userCredential = await signInWithEmailAndPassword(auth, email, password);
         const user = userCredential.user;
@@ -184,7 +207,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated, initial
     try {
         const provider = new GoogleAuthProvider();
         const result = await signInWithPopup(auth, provider);
-        // Google accounts are auto-verified
         onAuthenticated(result.user);
     } catch (err: any) {
         setError(mapAuthError(err));
@@ -206,7 +228,11 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated, initial
       setSuccessMsg(null);
 
       try {
-          await sendPasswordResetEmail(auth, email);
+          const actionCodeSettings = {
+              url: window.location.origin,
+              handleCodeInApp: true,
+          };
+          await sendPasswordResetEmail(auth, email, actionCodeSettings);
           setSuccessMsg("Password reset link sent! Check your email.");
       } catch (err: any) {
           setError(mapAuthError(err));
@@ -235,16 +261,17 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated, initial
   const resendVerification = async () => {
       if (!pendingUser || resendCooldown > 0) return;
       try {
-          await sendEmailVerification(pendingUser);
+          const actionCodeSettings = {
+              url: window.location.origin,
+              handleCodeInApp: true,
+          };
+          await sendEmailVerification(pendingUser, actionCodeSettings);
           setSuccessMsg("Verification link resent!");
           setResendCooldown(60);
           setError(null);
       } catch (e: any) {
-          if (e.code === 'auth/too-many-requests') {
-             setError("Please wait before requesting another email.");
-          } else {
-             setError("Failed to resend email.");
-          }
+          console.error("Resend error:", e);
+          setError(mapAuthError(e));
       }
   };
 
@@ -261,8 +288,27 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated, initial
     return 'Strong';
   };
 
+  // Helper component for Error Display
+  const ErrorMessage = ({ msg, code }: { msg: string, code: string | null }) => (
+    <div className={`p-4 rounded-xl text-xs font-bold border flex items-start gap-3 break-words ${code === 'auth/unauthorized-domain' ? 'bg-amber-100 dark:bg-amber-900/20 text-amber-900 dark:text-amber-400 border-amber-300 dark:border-amber-900/50' : code === 'auth/network-request-failed' ? 'bg-blue-100 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-900/50' : 'bg-red-100 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-200 dark:border-red-900/50'}`}>
+        {code === 'auth/unauthorized-domain' && <Globe size={18} className="shrink-0 mt-0.5" />}
+        {code === 'auth/network-request-failed' && <WifiOff size={18} className="shrink-0 mt-0.5" />}
+        {code === 'auth/internal-error' && <ServerCrash size={18} className="shrink-0 mt-0.5" />}
+        {!['auth/unauthorized-domain', 'auth/network-request-failed', 'auth/internal-error'].includes(code || '') && <AlertCircle size={18} className="shrink-0 mt-0.5" />}
+        <span>{msg}</span>
+    </div>
+  );
+
   return (
     <div className="fixed inset-0 z-[100] bg-slate-950 flex flex-col md:flex-row">
+      {/* HIGH VISIBILITY FOOTER FOR DOMAIN DEBUGGING */}
+      <div className="fixed bottom-0 left-0 right-0 z-[9999] bg-amber-400 text-black text-xs font-bold text-center py-2 select-all border-t-2 border-amber-500 shadow-2xl flex items-center justify-center gap-2">
+         <AlertCircle size={14} />
+         <span>Firebase Domain Config:</span>
+         <span className="font-mono bg-white px-2 py-0.5 rounded border border-amber-600 select-all">{currentDomain}</span>
+         <span className="hidden md:inline text-amber-900/60 font-normal">(Add to Console > Auth > Settings > Domains)</span>
+      </div>
+
       {/* Left Panel: Hero / Branding */}
       <div className="hidden md:flex w-1/2 bg-slate-900 relative items-center justify-center overflow-hidden border-r border-slate-800">
          <div className="absolute inset-0 bg-gradient-to-br from-emerald-900/40 via-slate-900 to-slate-950"></div>
@@ -289,7 +335,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated, initial
       </div>
 
       {/* Right Panel: Form */}
-      <div className="flex-1 bg-white dark:bg-slate-950 flex items-center justify-center p-6 md:p-12 relative overflow-y-auto">
+      <div className="flex-1 bg-white dark:bg-slate-950 flex items-center justify-center p-6 md:p-12 relative overflow-y-auto pb-16">
          <div className="w-full max-w-md animate-in slide-in-from-bottom-8 duration-700">
             
             {/* VERIFICATION PENDING VIEW */}
@@ -308,13 +354,11 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated, initial
 
                     <div className="bg-slate-50 dark:bg-slate-900 p-4 rounded-xl text-xs text-slate-500 leading-relaxed border border-slate-100 dark:border-slate-800">
                         <p>Click the link in the email to verify your account. The app will detect your verification automatically.</p>
+                        <p className="mt-2 text-emerald-500 font-bold">Check your Spam/Junk folder if you don't see it.</p>
                     </div>
 
-                    {error && (
-                        <div className="text-red-500 text-xs font-bold bg-red-100 dark:bg-red-900/20 p-3 rounded-lg flex items-center justify-center gap-2">
-                           <AlertCircle size={14} /> {error}
-                        </div>
-                    )}
+                    {/* Enhanced Error Display for Verification Screen */}
+                    {error && <ErrorMessage msg={error} code={errorCode} />}
                     
                     {successMsg && (
                         <div className="text-emerald-600 dark:text-emerald-400 text-xs font-bold bg-emerald-100 dark:bg-emerald-900/20 p-3 rounded-lg flex items-center justify-center gap-2">
@@ -385,11 +429,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated, initial
                         </div>
                     </div>
 
-                    {error && (
-                        <div className="text-red-500 text-xs font-bold bg-red-100 dark:bg-red-900/20 p-3 rounded-lg border border-red-200 dark:border-red-900/50">
-                            {error}
-                        </div>
-                    )}
+                    {error && <ErrorMessage msg={error} code={errorCode} />}
 
                     {successMsg && (
                         <div className="text-emerald-600 dark:text-emerald-400 text-xs font-bold bg-emerald-100 dark:bg-emerald-900/20 p-3 rounded-lg border border-emerald-200 dark:border-emerald-900/50 flex items-center gap-2">
@@ -489,14 +529,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated, initial
                             )}
                         </div>
 
-                        {error && (
-                            <div className={`p-4 rounded-xl text-xs font-bold border flex items-start gap-3 break-words ${errorCode === 'auth/unauthorized-domain' ? 'bg-amber-100 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-900/50' : errorCode === 'auth/network-request-failed' ? 'bg-blue-100 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-900/50' : 'bg-red-100 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-200 dark:border-red-900/50'}`}>
-                                {errorCode === 'auth/unauthorized-domain' && <Globe size={18} className="shrink-0 mt-0.5" />}
-                                {errorCode === 'auth/network-request-failed' && <WifiOff size={18} className="shrink-0 mt-0.5" />}
-                                {!['auth/unauthorized-domain', 'auth/network-request-failed'].includes(errorCode || '') && <AlertCircle size={18} className="shrink-0 mt-0.5" />}
-                                <span>{error}</span>
-                            </div>
-                        )}
+                        {error && <ErrorMessage msg={error} code={errorCode} />}
 
                         <button 
                             type="submit"

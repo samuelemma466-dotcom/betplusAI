@@ -15,6 +15,7 @@ import { auth } from "../services/firebase";
 
 interface AuthScreenProps {
   onAuthenticated: (user: any) => void;
+  initialPendingUser?: User | null; // Allow app to pass in a user that is already logged in but not verified
 }
 
 const GoogleIcon = () => (
@@ -38,7 +39,7 @@ const GoogleIcon = () => (
   </svg>
 );
 
-export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
+export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated, initialPendingUser = null }) => {
   const [mode, setMode] = useState<'login' | 'register' | 'forgot'>('login');
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -54,6 +55,36 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
 
   // Password Strength State
   const [strength, setStrength] = useState(0);
+
+  // Handle Initial Pending User (Refreshed Page)
+  useEffect(() => {
+    if (initialPendingUser) {
+        setPendingUser(initialPendingUser);
+        setNeedsVerification(true);
+        setEmail(initialPendingUser.email || '');
+    }
+  }, [initialPendingUser]);
+
+  // Auto-poll for verification status when on verification screen
+  useEffect(() => {
+    let interval: any;
+    if (needsVerification && pendingUser) {
+        interval = setInterval(async () => {
+            try {
+                await pendingUser.reload();
+                if (pendingUser.emailVerified) {
+                    onAuthenticated(pendingUser);
+                    setNeedsVerification(false);
+                }
+            } catch (e) {
+                console.log("Polling verification status...", e);
+            }
+        }, 3000); // Check every 3 seconds
+    }
+    return () => {
+        if (interval) clearInterval(interval);
+    };
+  }, [needsVerification, pendingUser, onAuthenticated]);
 
   useEffect(() => {
     if (!password) {
@@ -117,6 +148,9 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
       else if (err.code === 'auth/wrong-password') msg = "Incorrect password.";
       else if (err.code === 'auth/too-many-requests') msg = "Too many attempts. Try again later.";
       else if (err.code === 'auth/network-request-failed') msg = "Network error. Check your connection.";
+      else if (err.code === 'auth/unauthorized-domain') {
+          msg = `Domain unauthorized: Add '${window.location.hostname}' to Firebase Console > Authentication > Settings > Authorized Domains.`;
+      }
       setError(msg);
     } finally {
       setIsLoading(false);
@@ -132,11 +166,25 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
         // Google accounts are auto-verified
         onAuthenticated(result.user);
     } catch (err: any) {
-        console.error(err);
+        console.error("Google Login Error:", err);
         let msg = "Google sign in failed.";
-        if (err.code === 'auth/popup-closed-by-user') msg = "Sign in cancelled.";
-        else if (err.code === 'auth/popup-blocked') msg = "Pop-up blocked by browser.";
-        else if (err.code === 'auth/operation-not-allowed') msg = "Google Sign-In not enabled in Firebase Console.";
+        
+        // Handle specific error codes
+        if (err.code === 'auth/popup-closed-by-user') {
+            msg = "Sign in cancelled.";
+        } else if (err.code === 'auth/popup-blocked') {
+            msg = "Pop-up blocked by browser. Please allow pop-ups for this site.";
+        } else if (err.code === 'auth/operation-not-allowed') {
+            msg = "Google Sign-In not enabled in Firebase Console.";
+        } else if (err.code === 'auth/unauthorized-domain') {
+            // CRITICAL FIX: Inform user/developer about domain whitelisting
+            msg = `Domain unauthorized: Add '${window.location.hostname}' to Firebase Console > Authentication > Settings > Authorized Domains.`;
+        } else if (err.code === 'auth/cancelled-popup-request') {
+            msg = "Only one popup request allowed at one time.";
+        } else if (err.message) {
+            msg = err.message;
+        }
+        
         setError(msg);
     } finally {
         setIsLoading(false);
@@ -260,7 +308,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
                     </div>
 
                     <div className="bg-slate-50 dark:bg-slate-900 p-4 rounded-xl text-xs text-slate-500 leading-relaxed border border-slate-100 dark:border-slate-800">
-                        <p>Click the link in the email to verify your account. If you don't see it, check your spam folder.</p>
+                        <p>Click the link in the email to verify your account. The app will detect your verification automatically.</p>
                     </div>
 
                     {error && (
@@ -443,7 +491,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
                         </div>
 
                         {error && (
-                            <div className="text-red-500 text-xs font-bold bg-red-100 dark:bg-red-900/20 p-3 rounded-lg border border-red-200 dark:border-red-900/50">
+                            <div className="text-red-500 text-xs font-bold bg-red-100 dark:bg-red-900/20 p-3 rounded-lg border border-red-200 dark:border-red-900/50 break-words">
                             {error}
                             </div>
                         )}

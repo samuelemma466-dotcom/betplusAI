@@ -1,6 +1,6 @@
 
 import { initializeApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
+import { getAuth, setPersistence, browserLocalPersistence } from "firebase/auth";
 import { getDatabase, ref, get, set } from "firebase/database";
 import { MOCK_MATCHES } from "../constants";
 
@@ -18,6 +18,12 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getDatabase(app);
+
+// Explicitly set persistence to LOCAL to ensure the user stays logged in after refresh
+setPersistence(auth, browserLocalPersistence)
+  .catch((error) => {
+    console.error("Firebase Persistence Error:", error);
+  });
 
 // Seed the database with mock matches if it's empty
 export const seedDatabase = async () => {

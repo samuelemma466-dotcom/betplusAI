@@ -37,6 +37,8 @@ interface WalletState {
 
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
+  // pendingAuthUser allows us to pass a user who is logged in but not verified to the AuthScreen
+  const [pendingAuthUser, setPendingAuthUser] = useState<FirebaseUser | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
 
@@ -103,102 +105,109 @@ const App: React.FC = () => {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
-        setCurrentUser(user);
-        setIsAuthenticated(true);
-        
-        // Setup Profile
-        setUserProfile(prev => ({
-          ...prev,
-          name: user.displayName || user.email?.split('@')[0] || 'Player',
-          email: user.email || '',
-          id: user.uid,
-          avatar: (user.email?.[0] || 'P').toUpperCase()
-        }));
+        // Check if email is verified
+        if (user.emailVerified) {
+            setCurrentUser(user);
+            setIsAuthenticated(true);
+            setPendingAuthUser(null);
+            
+            // Setup Profile
+            setUserProfile(prev => ({
+            ...prev,
+            name: user.displayName || user.email?.split('@')[0] || 'Player',
+            email: user.email || '',
+            id: user.uid,
+            avatar: (user.email?.[0] || 'P').toUpperCase()
+            }));
 
-        // Initialize user WALLET in DB if not exists
-        const walletRef = ref(db, `users/${user.uid}/wallet`);
-        get(walletRef).then(snap => {
-           if (!snap.exists()) {
-             // Initialize with zero balances as requested
-             set(walletRef, { main: 0, bonus: 0 }); 
-           }
-        });
-
-        // 1. Subscribe to User Wallet (Main & Bonus)
-        onValue(walletRef, (snapshot) => {
-           const val = snapshot.val();
-           if (val) {
-             setWallet({ 
-               main: Number(val.main || 0), 
-               bonus: Number(val.bonus || 0) 
-             });
-           }
-        });
-
-        // 2. Subscribe to User Bets
-        const betsRef = ref(db, `bets/${user.uid}`);
-        onValue(betsRef, (snapshot) => {
-           const data = snapshot.val();
-           if (data) {
-              const betsArray = Object.keys(data).map(key => ({ ...data[key], id: key }));
-              // Sort by date descending
-              setMyBets(betsArray.sort((a, b) => new Date(b.placedAt).getTime() - new Date(a.placedAt).getTime()));
-           } else {
-              setMyBets([]);
-           }
-        });
-
-        // 3. Subscribe to Transactions
-        const txRef = ref(db, `transactions/${user.uid}`);
-        onValue(txRef, (snapshot) => {
-           const data = snapshot.val();
-           if (data) {
-              const txArray = Object.keys(data).map(key => ({ ...data[key], id: key }));
-              setTransactions(txArray.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
-           } else {
-              setTransactions([]);
-           }
-        });
-
-        // 4. Subscribe to Matches (and Seed if needed)
-        seedDatabase(); // Check and seed
-        const matchesRef = ref(db, 'matches');
-        onValue(matchesRef, (snapshot) => {
-           const data = snapshot.val();
-           if (data) {
-              // Convert object to array
-              const matchesArr = Object.values(data) as Match[];
-              // Ensure Date objects are proper Dates (Firebase stores as string/timestamp)
-              // IMPORTANT: Firebase omits empty arrays, so we must default odds.secondary to [] if undefined
-              const processed = matchesArr.map(m => ({
-                 ...m,
-                 startTime: new Date(m.startTime),
-                 odds: {
-                    main: m.odds?.main || [],
-                    secondary: m.odds?.secondary || []
-                 },
-                 stats: m.stats || []
-              }));
-              setFirebaseMatches(processed);
-           }
-        });
-
-        // 5. Fetch Full Football Data (API)
-        // Fetches both LIVE and UPCOMING matches for the day to replace mock data
-        const loadApiData = async () => {
-            const data = await fetchFootballMatches();
-            setApiMatches(data);
-            if (data.length > 0) {
-               addToast("Football Data Sync", `${data.length} matches loaded from API-Football`);
+            // Initialize user WALLET in DB if not exists
+            const walletRef = ref(db, `users/${user.uid}/wallet`);
+            get(walletRef).then(snap => {
+            if (!snap.exists()) {
+                // Initialize with zero balances as requested
+                set(walletRef, { main: 0, bonus: 0 }); 
             }
-        };
-        loadApiData();
-        // Refresh every 5 minutes to avoid rate limiting
-        const apiInterval = setInterval(loadApiData, 300000); 
-        return () => clearInterval(apiInterval);
+            });
+
+            // 1. Subscribe to User Wallet (Main & Bonus)
+            onValue(walletRef, (snapshot) => {
+            const val = snapshot.val();
+            if (val) {
+                setWallet({ 
+                main: Number(val.main || 0), 
+                bonus: Number(val.bonus || 0) 
+                });
+            }
+            });
+
+            // 2. Subscribe to User Bets
+            const betsRef = ref(db, `bets/${user.uid}`);
+            onValue(betsRef, (snapshot) => {
+            const data = snapshot.val();
+            if (data) {
+                const betsArray = Object.keys(data).map(key => ({ ...data[key], id: key }));
+                // Sort by date descending
+                setMyBets(betsArray.sort((a, b) => new Date(b.placedAt).getTime() - new Date(a.placedAt).getTime()));
+            } else {
+                setMyBets([]);
+            }
+            });
+
+            // 3. Subscribe to Transactions
+            const txRef = ref(db, `transactions/${user.uid}`);
+            onValue(txRef, (snapshot) => {
+            const data = snapshot.val();
+            if (data) {
+                const txArray = Object.keys(data).map(key => ({ ...data[key], id: key }));
+                setTransactions(txArray.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+            } else {
+                setTransactions([]);
+            }
+            });
+
+            // 4. Subscribe to Matches (and Seed if needed)
+            seedDatabase(); // Check and seed
+            const matchesRef = ref(db, 'matches');
+            onValue(matchesRef, (snapshot) => {
+            const data = snapshot.val();
+            if (data) {
+                // Convert object to array
+                const matchesArr = Object.values(data) as Match[];
+                const processed = matchesArr.map(m => ({
+                    ...m,
+                    startTime: new Date(m.startTime),
+                    odds: {
+                        main: m.odds?.main || [],
+                        secondary: m.odds?.secondary || []
+                    },
+                    stats: m.stats || []
+                }));
+                setFirebaseMatches(processed);
+            }
+            });
+
+            // 5. Fetch Full Football Data (API)
+            const loadApiData = async () => {
+                const data = await fetchFootballMatches();
+                setApiMatches(data);
+                if (data.length > 0) {
+                    addToast("Football Data Sync", `${data.length} matches loaded from API-Football`);
+                }
+            };
+            loadApiData();
+            const apiInterval = setInterval(loadApiData, 300000); 
+            return () => clearInterval(apiInterval);
+
+        } else {
+            // User exists but NOT verified
+            setCurrentUser(null);
+            setIsAuthenticated(false);
+            setPendingAuthUser(user); // Send to AuthScreen to show verification UI
+        }
 
       } else {
         setCurrentUser(null);
+        setPendingAuthUser(null);
         setIsAuthenticated(false);
         setFirebaseMatches([]);
         setApiMatches([]);
@@ -234,7 +243,9 @@ const App: React.FC = () => {
 
   const handleAuthSuccess = (user: any) => {
     // Auth state listener handles the rest
-    addToast("System Online", "Identity Verified");
+    if (user.emailVerified) {
+        addToast("System Online", "Identity Verified");
+    }
   };
 
   // IDLE TIMER LOGIC
@@ -344,16 +355,11 @@ const App: React.FC = () => {
   };
 
   // --- CLIENT-SIDE SIMULATION FOR VISUALS (Syncs to Local State Only for smoothness) ---
-  // In a real app, this would be updated via Cloud Functions writing to DB
   useEffect(() => {
     const interval = setInterval(() => {
       setFirebaseMatches(currentMatches => {
         return currentMatches.map(match => {
           if (!match.isLive) return match;
-
-          // Simple random simulation logic for display purposes
-          // NOTE: We are NOT writing this back to DB to avoid rapid write triggers in this demo context
-          // but we modify local state for the live effect.
           
           let newScores = match.scores ? { ...match.scores } : { home: 0, away: 0 };
           const scoreChance = Math.random();
@@ -525,7 +531,8 @@ const App: React.FC = () => {
   }
 
   if (!isAuthenticated) {
-    return <AuthScreen onAuthenticated={handleAuthSuccess} />;
+    // Pass the pendingAuthUser (if any) to allow AuthScreen to show the "Verify Email" view
+    return <AuthScreen onAuthenticated={handleAuthSuccess} initialPendingUser={pendingAuthUser} />;
   }
 
   const isSportsView = currentView === 'sports';
@@ -728,7 +735,7 @@ const App: React.FC = () => {
                 <span className="text-[10px] font-mono tracking-widest uppercase">Latency: 14ms</span>
              </div>
              <p className="text-[10px] text-slate-400 dark:text-slate-600 max-w-xl mx-auto leading-relaxed">
-               NXB is a concept simulation engine powered by Google Gemini. No real currency is wagered or won. 
+               NXB is a concept simulation engine powered by Google Gemini AI. No real currency is wagered or won. 
                Data provided for demonstration purposes only. This application is a high-fidelity tech demo.
              </p>
           </div>

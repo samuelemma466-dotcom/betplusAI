@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { SPORTS } from './constants';
 import { BetSelection, SportCategory, Match, PlacedBet, AppView, AppSettings, Transaction, UserProfile } from './types';
@@ -97,7 +96,8 @@ const App: React.FC = () => {
 
   // --- AUTH & DATA INITIALIZATION ---
   useEffect(() => {
-    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      // Logic handled inside a simplified block to ensure loading state is always cleared
       try {
         if (user) {
           setCurrentUser(user);
@@ -106,8 +106,10 @@ const App: React.FC = () => {
             setIsAuthenticated(true);
             setNeedsVerification(false);
             
-            // Initialize Real User Data from DB
-            initUserData(user);
+            // CRITICAL: Call initUserData WITHOUT await here.
+            // This ensures the UI unblocks ('setAuthLoading(false)') immediately
+            // while data fetches in the background.
+            initUserData(user).catch(console.error);
           } else {
             setIsAuthenticated(false);
             setNeedsVerification(true);
@@ -116,13 +118,14 @@ const App: React.FC = () => {
           setCurrentUser(null);
           setIsAuthenticated(false);
           setNeedsVerification(false);
-          setUserProfile(null); // Clear profile on logout
+          setUserProfile(null);
         }
       } catch (error) {
         console.error("Auth state change error:", error);
         setCurrentUser(null);
         setIsAuthenticated(false);
       } finally {
+        // ALWAYS clear loading state once auth check completes
         setAuthLoading(false);
       }
     });

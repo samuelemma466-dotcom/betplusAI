@@ -31,7 +31,7 @@ const App: React.FC = () => {
   // --- AUTH STATE ---
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [authLoading, setAuthLoading] = useState(true); // Start true to block UI until Firebase replies
+  const [authLoading, setAuthLoading] = useState(true); 
   const [needsVerification, setNeedsVerification] = useState(false);
   
   // --- APP STATE (Persisted) ---
@@ -55,15 +55,9 @@ const App: React.FC = () => {
   const [myBets, setMyBets] = useState<PlacedBet[]>([]);
   
   const [wallet, setWallet] = useState<WalletState>({ main: 0, bonus: 0 });
-  const [userProfile, setUserProfile] = useState<UserProfile>({
-    name: 'Player',
-    email: '',
-    phone: '',
-    avatar: 'PL',
-    id: '',
-    level: 1,
-    joinDate: new Date().getFullYear().toString()
-  });
+  
+  // Initialize as null to prevent "John Doe" flash before auth load
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
 
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [showConfetti, setShowConfetti] = useState(false);
@@ -85,7 +79,6 @@ const App: React.FC = () => {
   });
 
   const currencySymbol = getCurrencySymbol(settings.currency);
-  // Single Source of Truth: Firebase Listener matches
   const [matches, setMatches] = useState<Match[]>([]);
   const [matchesLoading, setMatchesLoading] = useState(true);
 
@@ -102,58 +95,42 @@ const App: React.FC = () => {
     localStorage.setItem('nxb_currentView', currentView);
   }, [currentView]);
 
-  // --- AUTH INITIALIZATION ---
+  // --- AUTH & DATA INITIALIZATION ---
   useEffect(() => {
-    // This listener handles session restoration automatically
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       try {
         if (user) {
-          // User is logged in (session restored)
           setCurrentUser(user);
           
           if (user.emailVerified) {
             setIsAuthenticated(true);
             setNeedsVerification(false);
             
-            // Hydrate User Profile
-            setUserProfile(prev => ({
-                ...prev,
-                name: user.displayName || user.email?.split('@')[0] || 'Player',
-                email: user.email || '',
-                id: user.uid,
-                avatar: (user.email?.[0] || 'P').toUpperCase()
-            }));
-
-            // Initialize Database Listeners for this user
-            // We call this without await so the UI unblocks immediately
-            initUserData(user.uid).catch(console.error);
+            // Initialize Real User Data from DB
+            initUserData(user);
           } else {
-            // Logged in but not verified
             setIsAuthenticated(false);
             setNeedsVerification(true);
           }
         } else {
-          // User is logged out
           setCurrentUser(null);
           setIsAuthenticated(false);
           setNeedsVerification(false);
+          setUserProfile(null); // Clear profile on logout
         }
       } catch (error) {
         console.error("Auth state change error:", error);
-        // Fallback to logged out state on critical error to allow retry
         setCurrentUser(null);
         setIsAuthenticated(false);
       } finally {
-        // Ensure loading screen is removed regardless of what happens above
         setAuthLoading(false);
       }
     });
 
-    // Global Data Seeding (Runs once)
+    // Seed Matches Only (Users are dynamic)
     seedDatabase();
     
-    // Global Match Listeners (Firebase)
-    // This now receives data from the NODE.JS BACKEND SYNC as well
+    // Global Match Listeners
     const matchesRef = ref(db, 'matches');
     const unsubscribeMatches = onValue(matchesRef, (snapshot) => {
         const data = snapshot.val();
@@ -178,20 +155,43 @@ const App: React.FC = () => {
     };
   }, []);
 
-  const initUserData = async (uid: string) => {
-      // Wallet Listener
-      const walletRef = ref(db, `users/${uid}/wallet`);
-      const walletSnap = await get(walletRef);
-      if (!walletSnap.exists()) {
-          // New User Bonus
-          await set(walletRef, { main: 1000, bonus: 0 }); 
+  const initUserData = async (user: FirebaseUser) => {
+      const uid = user.uid;
+      
+      // 1. Profile Sync
+      const profileRef = ref(db, `users/${uid}/profile`);
+      const profileSnap = await get(profileRef);
+      
+      if (!profileSnap.exists()) {
+          // CREATE NEW USER PROFILE IF NONE EXISTS
+          const newProfile: UserProfile = {
+              id: uid,
+              name: user.displayName || user.email?.split('@')[0] || 'Player',
+              email: user.email || '',
+              phone: user.phoneNumber || '',
+              avatar: (user.email?.[0] || 'P').toUpperCase(),
+              level: 1,
+              joinDate: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+          };
+          await set(profileRef, newProfile);
+          // Initial Welcome Bonus
+          await update(ref(db, `users/${uid}/wallet`), { main: 1000, bonus: 500 });
       }
+
+      // Realtime Profile Listener
+      onValue(profileRef, (snapshot) => {
+          const val = snapshot.val();
+          if (val) setUserProfile(val);
+      });
+
+      // 2. Wallet Sync
+      const walletRef = ref(db, `users/${uid}/wallet`);
       onValue(walletRef, (snapshot) => {
           const val = snapshot.val();
           if (val) setWallet({ main: Number(val.main || 0), bonus: Number(val.bonus || 0) });
       });
 
-      // Bets Listener
+      // 3. Bets Sync
       onValue(ref(db, `bets/${uid}`), (snapshot) => {
           const data = snapshot.val();
           if (data) {
@@ -202,7 +202,7 @@ const App: React.FC = () => {
           }
       });
 
-      // Transactions Listener
+      // 4. Transactions Sync
       onValue(ref(db, `transactions/${uid}`), (snapshot) => {
           const data = snapshot.val();
           if (data) {
@@ -226,17 +226,21 @@ const App: React.FC = () => {
         setIsMenuOpen(false);
         setCurrentView('sports');
         setSelections([]);
-        // Clear local storage for session-specific UI state
         localStorage.removeItem('nxb_activeCategory');
         localStorage.removeItem('nxb_filter');
         localStorage.removeItem('nxb_currentView');
     });
   };
 
+  const handleUpdateProfile = async (updated: UserProfile) => {
+      if (currentUser) {
+          await update(ref(db, `users/${currentUser.uid}/profile`), updated);
+      }
+  };
+
   const triggerWin = async (amount: number, gameName: string = "Casino") => {
     setShowConfetti(true);
     if (currentUser) {
-       // Optimistic update done by listener, but we trigger the write
        const newBalance = wallet.main + amount;
        await update(ref(db, `users/${currentUser.uid}/wallet`), { main: newBalance });
        
@@ -250,10 +254,9 @@ const App: React.FC = () => {
            status: 'Success' 
        });
 
-       // Global Feed
        push(ref(db, 'global_wins'), { 
            id: Date.now().toString(), 
-           user: userProfile.name, 
+           user: userProfile?.name || 'Player', 
            amount, 
            game: gameName, 
            timestamp: Date.now() 
@@ -288,25 +291,32 @@ const App: React.FC = () => {
 
   const handleOddClick = (selection: BetSelection) => {
     setSelections(prev => {
-        // Toggle if exists
         if (prev.some(x => x.selectionId === selection.selectionId)) {
             return prev.filter(x => x.selectionId !== selection.selectionId);
         }
-        // Remove if same match but different market (exclusive selection per match usually, but allowing multiples for builder)
-        // For simplicity, let's allow multiple selections per match in this demo
         return [...prev, selection];
     });
   };
 
   // --- ROUTER ---
   const renderContent = () => {
+    // Wait for user profile to load before rendering sensitive views
+    if (!userProfile && isAuthenticated) return (
+        <div className="flex flex-col items-center justify-center min-h-[50vh]">
+            <div className="w-10 h-10 border-4 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin mb-4"></div>
+            <p className="text-slate-500 text-xs font-bold uppercase">Loading Profile...</p>
+        </div>
+    );
+
+    const safeProfile = userProfile || { name: 'Loading...', email: '', avatar: '..', id: '', level: 1, phone: '', joinDate: '' } as UserProfile;
+
     switch (currentView) {
       case 'casino': return <CasinoGame onWin={(amt) => triggerWin(amt, "Mines/Aviator")} />;
       case 'jackpot': return <JackpotGame />;
       case 'my-bets': return <MyBets bets={myBets} onCashOut={(id, amt) => triggerWin(amt, "Cash Out")} />;
       case 'deposit': return <DepositView onDeposit={(amt, meth) => update(ref(db, `users/${currentUser!.uid}/wallet`), { main: wallet.main + amt })} currencySymbol={currencySymbol} />;
       case 'withdraw': return <WithdrawView balance={wallet.main} onWithdraw={(amt) => update(ref(db, `users/${currentUser!.uid}/wallet`), { main: wallet.main - amt })} currencySymbol={currencySymbol} />;
-      case 'profile': return <ProfileView onNavigate={setCurrentView} settings={settings} user={userProfile} onUpdateUser={setUserProfile} />;
+      case 'profile': return <ProfileView onNavigate={setCurrentView} settings={settings} user={safeProfile} onUpdateUser={handleUpdateProfile} />;
       case 'transactions': return <TransactionsView transactions={transactions} currencySymbol={currencySymbol} />;
       case 'settings': return <SettingsView settings={settings} onUpdate={setSettings} />;
       case 'security': return <SecurityCenter />;
@@ -338,7 +348,7 @@ const App: React.FC = () => {
     </div>
   );
 
-  // --- AUTH SCREEN ---
+  // --- AUTH SCREEN (Gatekeeper) ---
   if (!isAuthenticated) {
       return (
           <AuthScreen 
@@ -361,7 +371,7 @@ const App: React.FC = () => {
           onLogout={handleLogout} 
           settings={settings} 
           onSettingsUpdate={setSettings} 
-          user={userProfile} 
+          user={userProfile || undefined} 
           balance={wallet.main} 
           bonus={wallet.bonus} 
           currencySymbol={currencySymbol} 

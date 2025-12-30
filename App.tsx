@@ -22,9 +22,6 @@ import { auth, db, seedDatabase } from './services/firebase';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
 import { ref, onValue, set, push, get, update } from 'firebase/database';
 
-// API Imports
-import { fetchFootballMatches } from './services/footballApi';
-
 interface WalletState {
   main: number;
   bonus: number;
@@ -88,10 +85,9 @@ const App: React.FC = () => {
   });
 
   const currencySymbol = getCurrencySymbol(settings.currency);
-  const [firebaseMatches, setFirebaseMatches] = useState<Match[]>([]);
-  const [apiMatches, setApiMatches] = useState<Match[]>([]);
-  const matches = [...apiMatches, ...firebaseMatches];
-  const [matchesLoading, setMatchesLoading] = useState(true); // Loading state for matches
+  // Single Source of Truth: Firebase Listener matches
+  const [matches, setMatches] = useState<Match[]>([]);
+  const [matchesLoading, setMatchesLoading] = useState(true);
 
   // --- PERSISTENCE EFFECTS ---
   useEffect(() => {
@@ -110,86 +106,75 @@ const App: React.FC = () => {
   useEffect(() => {
     // This listener handles session restoration automatically
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
-      if (user) {
-        // User is logged in (session restored)
-        setCurrentUser(user);
-        
-        if (user.emailVerified) {
-          setIsAuthenticated(true);
-          setNeedsVerification(false);
+      try {
+        if (user) {
+          // User is logged in (session restored)
+          setCurrentUser(user);
           
-          // Hydrate User Profile
-          setUserProfile(prev => ({
-              ...prev,
-              name: user.displayName || user.email?.split('@')[0] || 'Player',
-              email: user.email || '',
-              id: user.uid,
-              avatar: (user.email?.[0] || 'P').toUpperCase()
-          }));
+          if (user.emailVerified) {
+            setIsAuthenticated(true);
+            setNeedsVerification(false);
+            
+            // Hydrate User Profile
+            setUserProfile(prev => ({
+                ...prev,
+                name: user.displayName || user.email?.split('@')[0] || 'Player',
+                email: user.email || '',
+                id: user.uid,
+                avatar: (user.email?.[0] || 'P').toUpperCase()
+            }));
 
-          // Initialize Database Listeners for this user
-          initUserData(user.uid);
+            // Initialize Database Listeners for this user
+            // We call this without await so the UI unblocks immediately
+            initUserData(user.uid).catch(console.error);
+          } else {
+            // Logged in but not verified
+            setIsAuthenticated(false);
+            setNeedsVerification(true);
+          }
         } else {
-          // Logged in but not verified
+          // User is logged out
+          setCurrentUser(null);
           setIsAuthenticated(false);
-          setNeedsVerification(true);
+          setNeedsVerification(false);
         }
-      } else {
-        // User is logged out
+      } catch (error) {
+        console.error("Auth state change error:", error);
+        // Fallback to logged out state on critical error to allow retry
         setCurrentUser(null);
         setIsAuthenticated(false);
-        setNeedsVerification(false);
+      } finally {
+        // Ensure loading screen is removed regardless of what happens above
+        setAuthLoading(false);
       }
-      setAuthLoading(false); // Stop loading screen once Firebase responds
     });
 
     // Global Data Seeding (Runs once)
     seedDatabase();
     
     // Global Match Listeners (Firebase)
+    // This now receives data from the NODE.JS BACKEND SYNC as well
     const matchesRef = ref(db, 'matches');
-    onValue(matchesRef, (snapshot) => {
+    const unsubscribeMatches = onValue(matchesRef, (snapshot) => {
         const data = snapshot.val();
         if (data) {
-            setFirebaseMatches(Object.values(data).map((m: any) => ({ 
+            const list = Object.values(data).map((m: any) => ({ 
                 ...m, 
                 startTime: new Date(m.startTime) 
-            })));
+            }));
+            setMatches(list);
+            setMatchesLoading(false);
+        } else {
+            setMatchesLoading(false);
         }
+    }, (error) => {
+       console.error("Firebase Read Error", error);
+       setMatchesLoading(false);
     });
 
-    return () => unsubscribeAuth();
-  }, []);
-
-  // --- REAL-TIME API POLLING ---
-  useEffect(() => {
-    let isMounted = true;
-    let timerId: ReturnType<typeof setTimeout>;
-
-    const loadRealtimeMatches = async () => {
-        try {
-            const data = await fetchFootballMatches();
-            if (isMounted) {
-                setApiMatches(data);
-                setMatchesLoading(false); // Stop skeleton after first load
-            }
-        } catch (err) {
-            console.error("Poll Error:", err);
-            if (isMounted) setMatchesLoading(false);
-        } finally {
-            if (isMounted) {
-                // Recursive polling every 5 seconds for live updates
-                // This ensures we get new scores and drifting odds without overlapping requests
-                timerId = setTimeout(loadRealtimeMatches, 5000); 
-            }
-        }
-    };
-
-    loadRealtimeMatches();
-
     return () => {
-        isMounted = false;
-        clearTimeout(timerId);
+        unsubscribeAuth();
+        unsubscribeMatches();
     };
   }, []);
 

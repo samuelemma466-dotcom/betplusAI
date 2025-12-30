@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { SPORTS } from './constants';
 import { BetSelection, SportCategory, Match, PlacedBet, AppView, AppSettings, Transaction, UserProfile } from './types';
@@ -25,6 +26,16 @@ interface WalletState {
   main: number;
   bonus: number;
 }
+
+const DEFAULT_PROFILE: UserProfile = {
+    id: '',
+    name: 'Loading...',
+    email: '...',
+    phone: '',
+    avatar: 'PL',
+    level: 1,
+    joinDate: new Date().getFullYear().toString()
+};
 
 const App: React.FC = () => {
   // --- AUTH STATE ---
@@ -55,7 +66,7 @@ const App: React.FC = () => {
   
   const [wallet, setWallet] = useState<WalletState>({ main: 0, bonus: 0 });
   
-  // Initialize as null to prevent "John Doe" flash before auth load
+  // Initialize as null but will use fallback
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
 
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -96,8 +107,15 @@ const App: React.FC = () => {
 
   // --- AUTH & DATA INITIALIZATION ---
   useEffect(() => {
+    // FAILSAFE: Force loading to complete after 4 seconds even if Firebase hangs
+    // This prevents the "Stuck on Loading" screen on slow networks/Render
+    const safetyTimer = setTimeout(() => {
+        setAuthLoading(false);
+    }, 4000);
+
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
-      // Logic handled inside a simplified block to ensure loading state is always cleared
+      clearTimeout(safetyTimer); // Clear safety timer if Firebase responds
+      
       try {
         if (user) {
           setCurrentUser(user);
@@ -106,9 +124,7 @@ const App: React.FC = () => {
             setIsAuthenticated(true);
             setNeedsVerification(false);
             
-            // CRITICAL: Call initUserData WITHOUT await here.
-            // This ensures the UI unblocks ('setAuthLoading(false)') immediately
-            // while data fetches in the background.
+            // Fire and forget - don't await this, let UI render immediately
             initUserData(user).catch(console.error);
           } else {
             setIsAuthenticated(false);
@@ -125,7 +141,6 @@ const App: React.FC = () => {
         setCurrentUser(null);
         setIsAuthenticated(false);
       } finally {
-        // ALWAYS clear loading state once auth check completes
         setAuthLoading(false);
       }
     });
@@ -153,6 +168,7 @@ const App: React.FC = () => {
     });
 
     return () => {
+        clearTimeout(safetyTimer);
         unsubscribeAuth();
         unsubscribeMatches();
     };
@@ -161,30 +177,28 @@ const App: React.FC = () => {
   const initUserData = async (user: FirebaseUser) => {
       const uid = user.uid;
       
-      // 1. Profile Sync
+      // 1. Profile Sync - Optimistic Fetch
       const profileRef = ref(db, `users/${uid}/profile`);
-      const profileSnap = await get(profileRef);
       
-      if (!profileSnap.exists()) {
-          // CREATE NEW USER PROFILE IF NONE EXISTS
-          const newProfile: UserProfile = {
-              id: uid,
-              name: user.displayName || user.email?.split('@')[0] || 'Player',
-              email: user.email || '',
-              phone: user.phoneNumber || '',
-              avatar: (user.email?.[0] || 'P').toUpperCase(),
-              level: 1,
-              joinDate: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
-          };
-          await set(profileRef, newProfile);
-          // Initial Welcome Bonus
-          await update(ref(db, `users/${uid}/wallet`), { main: 1000, bonus: 500 });
-      }
-
-      // Realtime Profile Listener
+      // We set up listener immediately so UI updates when data arrives
       onValue(profileRef, (snapshot) => {
           const val = snapshot.val();
-          if (val) setUserProfile(val);
+          if (val) {
+             setUserProfile(val);
+          } else {
+             // If listener returns null, try creating profile
+             const newProfile: UserProfile = {
+                id: uid,
+                name: user.displayName || user.email?.split('@')[0] || 'Player',
+                email: user.email || '',
+                phone: user.phoneNumber || '',
+                avatar: (user.email?.[0] || 'P').toUpperCase(),
+                level: 1,
+                joinDate: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+            };
+            set(profileRef, newProfile).then(() => setUserProfile(newProfile));
+            update(ref(db, `users/${uid}/wallet`), { main: 1000, bonus: 500 });
+          }
       });
 
       // 2. Wallet Sync
@@ -303,15 +317,12 @@ const App: React.FC = () => {
 
   // --- ROUTER ---
   const renderContent = () => {
-    // Wait for user profile to load before rendering sensitive views
-    if (!userProfile && isAuthenticated) return (
-        <div className="flex flex-col items-center justify-center min-h-[50vh]">
-            <div className="w-10 h-10 border-4 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin mb-4"></div>
-            <p className="text-slate-500 text-xs font-bold uppercase">Loading Profile...</p>
-        </div>
-    );
-
-    const safeProfile = userProfile || { name: 'Loading...', email: '', avatar: '..', id: '', level: 1, phone: '', joinDate: '' } as UserProfile;
+    // FIX: Do NOT block rendering while waiting for profile. Use a Safe Profile fallback.
+    // This ensures the app structure loads immediately on refresh.
+    const safeProfile = userProfile || { 
+        ...DEFAULT_PROFILE, 
+        email: currentUser?.email || 'Loading...' 
+    };
 
     switch (currentView) {
       case 'casino': return <CasinoGame onWin={(amt) => triggerWin(amt, "Mines/Aviator")} />;
@@ -374,7 +385,7 @@ const App: React.FC = () => {
           onLogout={handleLogout} 
           settings={settings} 
           onSettingsUpdate={setSettings} 
-          user={userProfile || undefined} 
+          user={userProfile || { ...DEFAULT_PROFILE, email: currentUser?.email || '' }} 
           balance={wallet.main} 
           bonus={wallet.bonus} 
           currencySymbol={currencySymbol} 

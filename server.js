@@ -1,3 +1,4 @@
+
 const express = require('express');
 const path = require('path');
 const axios = require('axios');
@@ -36,13 +37,15 @@ if (fs.existsSync(SERVICE_ACCOUNT_PATH)) {
 
 // --- 2. EXPRESS STATIC SERVING (SPA) ---
 // Serve static files from the 'dist' directory
-app.use(express.static(path.join(__dirname, 'dist')));
+// We use path.resolve to ensure absolute paths on Render's filesystem
+const distPath = path.resolve(__dirname, 'dist');
+app.use(express.static(distPath));
 
 // THE FIX: Catch-all route for React Router
 // This ensures that when you refresh on a route like /profile, 
-// the server sends index.html instead of a 404, allowing React to take over.
+// the server sends index.html instead of a 404.
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+  res.sendFile(path.join(distPath, 'index.html'));
 });
 
 app.listen(port, () => {
